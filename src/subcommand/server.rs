@@ -762,7 +762,7 @@ impl Server {
                   .collect(),
               )
             })
-            .collect::<BTreeMap<SpacedRune, BTreeMap<OutPoint, u128>>>(),
+            .collect::<BTreeMap<Rune, BTreeMap<OutPoint, u128>>>(),
         )
         .into_response()
       } else {

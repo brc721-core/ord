@@ -8,12 +8,6 @@ pub struct SpacedRune {
   pub spacers: u32,
 }
 
-impl SpacedRune {
-  pub fn new(rune: Rune, spacers: u32) -> Self {
-    Self { rune, spacers }
-  }
-}
-
 impl FromStr for SpacedRune {
   type Err = Error;
 
