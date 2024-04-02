@@ -26,20 +26,25 @@ impl Mint {
 
     let bitcoin_client = wallet.bitcoin_client();
 
-    let block_height = bitcoin_client.get_block_count()?;
+    let block_height: u32 = bitcoin_client.get_block_count()?.try_into().unwrap();
+
+    let block_time = bitcoin_client
+      .get_block(&bitcoin_client.get_best_block_hash()?)?
+      .header
+      .time;
 
     let Some((id, rune_entry, _)) = wallet.get_rune(rune)? else {
       bail!("rune {rune} has not been etched");
     };
 
     let limit = rune_entry
-      .mintable(block_height)
+      .mintable(Height(block_height), block_time)
       .map_err(|err| anyhow!("rune {rune} {err}"))?;
 
     let destination = wallet.get_change_address()?;
 
     let runestone = Runestone {
-      mint: Some(id),
+      claim: Some(id),
       ..default()
     };
 

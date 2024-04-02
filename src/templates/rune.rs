@@ -23,16 +23,15 @@ mod tests {
     assert_regex_match!(
       RuneHtml {
         entry: RuneEntry {
-          block: 1,
           burned: 123456789123456789,
           divisibility: 9,
           etching: Txid::all_zeros(),
           mints: 100,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             cap: Some(101),
-            offset: (None, None),
-            height: (Some(10), Some(11)),
+            end: Some(11),
             limit: Some(1000000001),
+            deadline: Some(7),
           }),
           number: 25,
           premine: 123456789,
@@ -66,8 +65,8 @@ mod tests {
   <dt>mint</dt>
   <dd>
     <dl>
-      <dt>start</dt>
-      <dd><a href=/block/10>10</a></dd>
+      <dt>deadline</dt>
+      <dd><time>1970-01-01 00:00:07 UTC</time></dd>
       <dt>end</dt>
       <dd><a href=/block/11>11</a></dd>
       <dt>limit</dt>
@@ -106,9 +105,8 @@ mod tests {
     assert_regex_match!(
       RuneHtml {
         entry: RuneEntry {
-          block: 0,
           burned: 123456789123456789,
-          terms: None,
+          mint: None,
           divisibility: 9,
           etching: Txid::all_zeros(),
           mints: 0,
@@ -139,12 +137,11 @@ mod tests {
     assert_regex_match!(
       RuneHtml {
         entry: RuneEntry {
-          block: 0,
           burned: 123456789123456789,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             cap: None,
-            offset: (None, None),
-            height: (None, None),
+            deadline: None,
+            end: None,
             limit: None,
           }),
           divisibility: 9,
@@ -168,7 +165,7 @@ mod tests {
   <dt>mint</dt>
   <dd>
     <dl>
-      <dt>start</dt>
+      <dt>deadline</dt>
       <dd>none</dd>
       <dt>end</dt>
       <dd>none</dd>

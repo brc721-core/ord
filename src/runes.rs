@@ -4,8 +4,8 @@ use {
 };
 
 pub use {
-  edict::Edict, etching::Etching, pile::Pile, rune::Rune, rune_id::RuneId, runestone::Runestone,
-  spaced_rune::SpacedRune, terms::Terms,
+  edict::Edict, etching::Etching, mint::Mint, pile::Pile, rune::Rune, rune_id::RuneId,
+  runestone::Runestone, spaced_rune::SpacedRune,
 };
 
 pub const MAX_DIVISIBILITY: u8 = 38;
@@ -16,13 +16,13 @@ const RESERVED: u128 = 6402364363415443603228541259936211926;
 mod edict;
 mod etching;
 mod flag;
+mod mint;
 mod pile;
 mod rune;
 mod rune_id;
 mod runestone;
 mod spaced_rune;
 mod tag;
-mod terms;
 pub mod varint;
 
 type Result<T, E = Error> = std::result::Result<T, E>;
@@ -30,8 +30,8 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Debug, PartialEq)]
 pub enum MintError {
   Cap(u128),
-  End(u64),
-  Start(u64),
+  Deadline(u32),
+  End(u32),
   Unmintable,
 }
 
@@ -39,8 +39,8 @@ impl Display for MintError {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
       MintError::Cap(cap) => write!(f, "limited to {cap} mints"),
+      MintError::Deadline(deadline) => write!(f, "mint ended at {deadline}"),
       MintError::End(end) => write!(f, "mint ended on block {end}"),
-      MintError::Start(start) => write!(f, "mint starts on block {start}"),
       MintError::Unmintable => write!(f, "not mintable"),
     }
   }
@@ -116,7 +116,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -155,7 +154,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -227,7 +225,6 @@ mod tests {
         [(
           id,
           RuneEntry {
-            block: id.block,
             etching: txid,
             spaced_rune: SpacedRune {
               rune: Rune(minimum),
@@ -291,7 +288,6 @@ mod tests {
         [(
           id,
           RuneEntry {
-            block: id.block,
             etching: txid,
             spaced_rune: SpacedRune {
               rune: Rune(RESERVED - 1),
@@ -343,7 +339,6 @@ mod tests {
       [(
         id0,
         RuneEntry {
-          block: id0.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RESERVED),
@@ -395,7 +390,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RESERVED),
@@ -409,7 +403,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RESERVED + 1),
@@ -469,7 +462,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
@@ -517,7 +509,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -564,7 +555,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -607,7 +597,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -654,7 +643,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           burned: 100,
           etching: txid,
           spaced_rune: SpacedRune {
@@ -671,7 +659,7 @@ mod tests {
   }
 
   #[test]
-  fn allocations_to_invalid_outputs_produce_cenotaph() {
+  fn allocations_to_invalid_outputs_burn_runestone() {
     let context = Context::builder().arg("--index-runes").build();
 
     let (txid, id) = context.etch(
@@ -701,7 +689,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -741,7 +728,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -783,7 +769,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -819,7 +804,7 @@ mod tests {
           rune: Some(Rune(RUNE)),
           ..default()
         }),
-        pointer: None,
+        default_output: None,
         cenotaph: true,
         ..default()
       },
@@ -830,7 +815,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -858,11 +842,11 @@ mod tests {
         etching: Some(Etching {
           premine: Some(u128::MAX),
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             cap: Some(1),
+            deadline: Some(1),
             limit: Some(1),
-            offset: (Some(1), Some(1)),
-            height: (None, None),
+            term: Some(1),
           }),
           divisibility: Some(1),
           symbol: Some('$'),
@@ -878,11 +862,10 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           burned: u128::MAX,
           divisibility: 1,
           etching: txid0,
-          terms: None,
+          mint: None,
           mints: 0,
           number: 0,
           premine: u128::MAX,
@@ -930,13 +913,12 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RESERVED),
             spacers: 0,
           },
-          timestamp: id.block,
+          timestamp: 2,
           ..default()
         },
       )],
@@ -969,7 +951,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1007,7 +988,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           burned: u128::MAX,
           etching: txid0,
           spaced_rune: SpacedRune {
@@ -1048,7 +1028,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1080,7 +1059,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1126,7 +1104,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1159,7 +1136,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1200,7 +1176,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1225,7 +1200,7 @@ mod tests {
       outputs: 2,
       op_return: Some(
         Runestone {
-          pointer: Some(1),
+          default_output: Some(1),
           ..default()
         }
         .encipher(),
@@ -1239,7 +1214,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1285,7 +1259,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1310,7 +1283,7 @@ mod tests {
       outputs: 2,
       op_return: Some(
         Runestone {
-          pointer: Some(2),
+          default_output: Some(2),
           ..default()
         }
         .encipher(),
@@ -1324,7 +1297,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1366,7 +1338,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1398,7 +1369,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1444,7 +1414,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1480,7 +1449,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1520,7 +1488,6 @@ mod tests {
       [(
         id0,
         RuneEntry {
-          block: id0.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1562,7 +1529,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -1576,7 +1542,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -1622,7 +1587,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -1636,7 +1600,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -1684,7 +1647,6 @@ mod tests {
       [(
         id0,
         RuneEntry {
-          block: id0.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1726,7 +1688,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -1740,7 +1701,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -1786,7 +1746,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -1800,7 +1759,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -1853,7 +1811,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -1867,7 +1824,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -1924,7 +1880,6 @@ mod tests {
       [(
         id0,
         RuneEntry {
-          block: id0.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -1966,7 +1921,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -1980,7 +1934,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -2044,7 +1997,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -2058,7 +2010,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -2107,7 +2058,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2144,7 +2094,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2202,7 +2151,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -2216,7 +2164,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -2252,6 +2199,8 @@ mod tests {
   fn edicts_with_id_zero_are_skipped() {
     let context = Context::builder().arg("--index-runes").build();
 
+    context.mine_blocks(1);
+
     let (txid0, id) = context.etch(
       Runestone {
         edicts: vec![Edict {
@@ -2273,7 +2222,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2322,7 +2270,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2368,7 +2315,6 @@ mod tests {
       [(
         id0,
         RuneEntry {
-          block: id0.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2410,7 +2356,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -2424,7 +2369,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -2485,7 +2429,6 @@ mod tests {
         (
           id0,
           RuneEntry {
-            block: id0.block,
             etching: txid0,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE),
@@ -2499,7 +2442,6 @@ mod tests {
         (
           id1,
           RuneEntry {
-            block: id1.block,
             etching: txid1,
             spaced_rune: SpacedRune {
               rune: Rune(RUNE + 1),
@@ -2556,7 +2498,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2598,7 +2539,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2644,7 +2584,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           burned: u128::MAX,
           etching: txid,
           spaced_rune: SpacedRune {
@@ -2685,7 +2624,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2732,7 +2670,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2772,7 +2709,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2824,7 +2760,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2888,7 +2823,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2933,7 +2867,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -2985,7 +2918,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3036,7 +2968,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3084,7 +3015,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3127,7 +3057,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3182,7 +3111,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3232,7 +3160,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3287,7 +3214,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3337,7 +3263,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3392,7 +3317,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3435,7 +3359,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3490,7 +3413,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3540,7 +3462,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3595,7 +3516,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3645,7 +3565,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3715,7 +3634,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3756,7 +3674,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3796,7 +3713,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3839,7 +3755,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3868,7 +3783,7 @@ mod tests {
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -3884,7 +3799,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3892,7 +3806,7 @@ mod tests {
           },
           timestamp: id.block,
           mints: 0,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -3907,7 +3821,7 @@ mod tests {
       inputs: &[(2, 0, 0, Witness::new())],
       op_return: Some(
         Runestone {
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -3921,9 +3835,8 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -3956,7 +3869,7 @@ mod tests {
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             cap: Some(100),
             limit: Some(1000),
             ..default()
@@ -3972,7 +3885,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
@@ -3981,7 +3893,7 @@ mod tests {
           timestamp: id.block,
           premine: 0,
           mints: 0,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -4001,7 +3913,7 @@ mod tests {
             amount: 1000,
             output: 0,
           }],
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -4015,9 +3927,8 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -4051,7 +3962,7 @@ mod tests {
             amount: 1000,
             output: 0,
           }],
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -4065,9 +3976,8 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -4106,7 +4016,7 @@ mod tests {
       op_return: Some(
         Runestone {
           cenotaph: true,
-          mint: Some(id),
+          claim: Some(id),
           edicts: vec![Edict {
             id,
             amount: 1000,
@@ -4125,10 +4035,9 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           burned: 1000,
           etching: txid0,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -4163,376 +4072,17 @@ mod tests {
   }
 
   #[test]
-  fn open_mints_can_be_limited_with_offset_end() {
+  fn open_mints_can_be_limited_to_term() {
     let context = Context::builder().arg("--index-runes").build();
 
     let (txid0, id) = context.etch(
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(1000),
             cap: Some(100),
-            offset: (None, Some(2)),
-            ..default()
-          }),
-          ..default()
-        }),
-        ..default()
-      },
-      1,
-    );
-
-    let mut entry = RuneEntry {
-      block: id.block,
-      etching: txid0,
-      spaced_rune: SpacedRune {
-        rune: Rune(RUNE),
-        spacers: 0,
-      },
-      terms: Some(Terms {
-        limit: Some(1000),
-        offset: (None, Some(2)),
-        cap: Some(100),
-        ..default()
-      }),
-      timestamp: id.block,
-      ..default()
-    };
-
-    context.assert_runes([(id, entry)], []);
-
-    let txid1 = context.rpc_server.broadcast_tx(TransactionTemplate {
-      inputs: &[(2, 0, 0, Witness::new())],
-      op_return: Some(
-        Runestone {
-          mint: Some(id),
-          ..default()
-        }
-        .encipher(),
-      ),
-      ..default()
-    });
-
-    context.mine_blocks(1);
-
-    entry.mints += 1;
-
-    context.assert_runes(
-      [(id, entry)],
-      [(
-        OutPoint {
-          txid: txid1,
-          vout: 0,
-        },
-        vec![(id, 1000)],
-      )],
-    );
-
-    context.rpc_server.broadcast_tx(TransactionTemplate {
-      inputs: &[(3, 0, 0, Witness::new())],
-      op_return: Some(
-        Runestone {
-          mint: Some(id),
-          ..default()
-        }
-        .encipher(),
-      ),
-      ..default()
-    });
-
-    context.mine_blocks(1);
-
-    context.assert_runes(
-      [(id, entry)],
-      [(
-        OutPoint {
-          txid: txid1,
-          vout: 0,
-        },
-        vec![(id, 1000)],
-      )],
-    );
-  }
-
-  #[test]
-  fn open_mints_can_be_limited_with_offset_start() {
-    let context = Context::builder().arg("--index-runes").build();
-
-    let (txid0, id) = context.etch(
-      Runestone {
-        etching: Some(Etching {
-          rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
-            limit: Some(1000),
-            cap: Some(100),
-            offset: (Some(2), None),
-            ..default()
-          }),
-          ..default()
-        }),
-        ..default()
-      },
-      1,
-    );
-
-    let mut entry = RuneEntry {
-      block: id.block,
-      etching: txid0,
-      spaced_rune: SpacedRune {
-        rune: Rune(RUNE),
-        spacers: 0,
-      },
-      terms: Some(Terms {
-        limit: Some(1000),
-        offset: (Some(2), None),
-        cap: Some(100),
-        ..default()
-      }),
-      timestamp: id.block,
-      ..default()
-    };
-
-    context.assert_runes([(id, entry)], []);
-
-    context.rpc_server.broadcast_tx(TransactionTemplate {
-      inputs: &[(2, 0, 0, Witness::new())],
-      op_return: Some(
-        Runestone {
-          mint: Some(id),
-          ..default()
-        }
-        .encipher(),
-      ),
-      ..default()
-    });
-
-    context.mine_blocks(1);
-
-    context.assert_runes([(id, entry)], []);
-
-    let txid1 = context.rpc_server.broadcast_tx(TransactionTemplate {
-      inputs: &[(3, 0, 0, Witness::new())],
-      op_return: Some(
-        Runestone {
-          mint: Some(id),
-          ..default()
-        }
-        .encipher(),
-      ),
-      ..default()
-    });
-
-    context.mine_blocks(1);
-
-    entry.mints += 1;
-
-    context.assert_runes(
-      [(id, entry)],
-      [(
-        OutPoint {
-          txid: txid1,
-          vout: 0,
-        },
-        vec![(id, 1000)],
-      )],
-    );
-  }
-
-  #[test]
-  fn open_mints_can_be_limited_with_height_start() {
-    let context = Context::builder().arg("--index-runes").build();
-
-    let (txid0, id) = context.etch(
-      Runestone {
-        etching: Some(Etching {
-          rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
-            limit: Some(1000),
-            cap: Some(100),
-            height: (Some(10), None),
-            ..default()
-          }),
-          ..default()
-        }),
-        ..default()
-      },
-      1,
-    );
-
-    let mut entry = RuneEntry {
-      block: id.block,
-      etching: txid0,
-      spaced_rune: SpacedRune {
-        rune: Rune(RUNE),
-        spacers: 0,
-      },
-      terms: Some(Terms {
-        limit: Some(1000),
-        height: (Some(10), None),
-        cap: Some(100),
-        ..default()
-      }),
-      timestamp: id.block,
-      ..default()
-    };
-
-    context.assert_runes([(id, entry)], []);
-
-    context.rpc_server.broadcast_tx(TransactionTemplate {
-      inputs: &[(2, 0, 0, Witness::new())],
-      op_return: Some(
-        Runestone {
-          mint: Some(id),
-          ..default()
-        }
-        .encipher(),
-      ),
-      ..default()
-    });
-
-    context.mine_blocks(1);
-
-    context.assert_runes([(id, entry)], []);
-
-    let txid1 = context.rpc_server.broadcast_tx(TransactionTemplate {
-      inputs: &[(3, 0, 0, Witness::new())],
-      op_return: Some(
-        Runestone {
-          mint: Some(id),
-          ..default()
-        }
-        .encipher(),
-      ),
-      ..default()
-    });
-
-    context.mine_blocks(1);
-
-    entry.mints += 1;
-
-    context.assert_runes(
-      [(id, entry)],
-      [(
-        OutPoint {
-          txid: txid1,
-          vout: 0,
-        },
-        vec![(id, 1000)],
-      )],
-    );
-  }
-
-  #[test]
-  fn open_mints_can_be_limited_with_height_end() {
-    let context = Context::builder().arg("--index-runes").build();
-
-    let (txid0, id) = context.etch(
-      Runestone {
-        etching: Some(Etching {
-          rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
-            limit: Some(1000),
-            cap: Some(100),
-            height: (None, Some(10)),
-            ..default()
-          }),
-          ..default()
-        }),
-        ..default()
-      },
-      1,
-    );
-
-    let mut entry = RuneEntry {
-      block: id.block,
-      etching: txid0,
-      spaced_rune: SpacedRune {
-        rune: Rune(RUNE),
-        spacers: 0,
-      },
-      terms: Some(Terms {
-        limit: Some(1000),
-        height: (None, Some(10)),
-        cap: Some(100),
-        ..default()
-      }),
-      timestamp: id.block,
-      ..default()
-    };
-
-    context.assert_runes([(id, entry)], []);
-
-    let txid1 = context.rpc_server.broadcast_tx(TransactionTemplate {
-      inputs: &[(2, 0, 0, Witness::new())],
-      op_return: Some(
-        Runestone {
-          mint: Some(id),
-          ..default()
-        }
-        .encipher(),
-      ),
-      ..default()
-    });
-
-    context.mine_blocks(1);
-
-    entry.mints += 1;
-
-    context.assert_runes(
-      [(id, entry)],
-      [(
-        OutPoint {
-          txid: txid1,
-          vout: 0,
-        },
-        vec![(id, 1000)],
-      )],
-    );
-
-    context.rpc_server.broadcast_tx(TransactionTemplate {
-      inputs: &[(3, 0, 0, Witness::new())],
-      op_return: Some(
-        Runestone {
-          mint: Some(id),
-          ..default()
-        }
-        .encipher(),
-      ),
-      ..default()
-    });
-
-    context.mine_blocks(1);
-
-    context.assert_runes(
-      [(id, entry)],
-      [(
-        OutPoint {
-          txid: txid1,
-          vout: 0,
-        },
-        vec![(id, 1000)],
-      )],
-    );
-  }
-
-  #[test]
-  fn open_mints_with_offset_end_zero_can_be_premined() {
-    let context = Context::builder().arg("--index-runes").build();
-
-    let (txid, id) = context.etch(
-      Runestone {
-        edicts: vec![Edict {
-          id: RuneId::default(),
-          amount: 1111,
-          output: 0,
-        }],
-        etching: Some(Etching {
-          rune: Some(Rune(RUNE)),
-          premine: Some(1111),
-          terms: Some(Terms {
-            limit: Some(1000),
-            offset: (None, Some(0)),
+            term: Some(2),
             ..default()
           }),
           ..default()
@@ -4546,15 +4096,161 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          mint: Some(MintEntry {
+            limit: Some(1000),
+            end: Some(id.block + 2),
+            cap: Some(100),
+            ..default()
+          }),
+          timestamp: id.block,
+          ..default()
+        },
+      )],
+      [],
+    );
+
+    let txid1 = context.rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(2, 0, 0, Witness::new())],
+      op_return: Some(
+        Runestone {
+          edicts: vec![Edict {
+            id,
+            amount: 1000,
+            output: 0,
+          }],
+          claim: Some(id),
+          ..default()
+        }
+        .encipher(),
+      ),
+      ..default()
+    });
+
+    context.mine_blocks(1);
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          mint: Some(MintEntry {
+            limit: Some(1000),
+            end: Some(id.block + 2),
+            cap: Some(100),
+            ..default()
+          }),
+          premine: 0,
+          timestamp: id.block,
+          mints: 1,
+          ..default()
+        },
+      )],
+      [(
+        OutPoint {
+          txid: txid1,
+          vout: 0,
+        },
+        vec![(id, 1000)],
+      )],
+    );
+
+    context.rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(3, 0, 0, Witness::new())],
+      op_return: Some(
+        Runestone {
+          edicts: vec![Edict {
+            id,
+            amount: 1000,
+            output: 0,
+          }],
+          claim: Some(id),
+          ..default()
+        }
+        .encipher(),
+      ),
+      ..default()
+    });
+
+    context.mine_blocks(1);
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          premine: 0,
+          timestamp: id.block,
+          mint: Some(MintEntry {
+            limit: Some(1000),
+            end: Some(id.block + 2),
+            cap: Some(100),
+            ..default()
+          }),
+          mints: 1,
+          ..default()
+        },
+      )],
+      [(
+        OutPoint {
+          txid: txid1,
+          vout: 0,
+        },
+        vec![(id, 1000)],
+      )],
+    );
+  }
+
+  #[test]
+  fn open_mints_with_term_zero_can_be_premined() {
+    let context = Context::builder().arg("--index-runes").build();
+
+    let (txid, id) = context.etch(
+      Runestone {
+        edicts: vec![Edict {
+          id: RuneId::default(),
+          amount: 1111,
+          output: 0,
+        }],
+        etching: Some(Etching {
+          rune: Some(Rune(RUNE)),
+          premine: Some(1111),
+          mint: Some(Mint {
+            limit: Some(1000),
+            term: Some(0),
+            ..default()
+          }),
+          ..default()
+        }),
+        ..default()
+      },
+      1,
+    );
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
-            offset: (None, Some(0)),
+            end: Some(id.block),
             ..default()
           }),
           timestamp: id.block,
@@ -4570,7 +4266,7 @@ mod tests {
       outputs: 2,
       op_return: Some(
         Runestone {
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -4584,16 +4280,15 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
           timestamp: id.block,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
-            offset: (None, Some(0)),
+            end: Some(id.block),
             ..default()
           }),
           premine: 1111,
@@ -4605,6 +4300,414 @@ mod tests {
   }
 
   #[test]
+  fn open_mints_with_end_before_deadline() {
+    let context = Context::builder().arg("--index-runes").build();
+
+    context.mine_blocks(1);
+
+    let (txid0, id) = context.etch(
+      Runestone {
+        etching: Some(Etching {
+          rune: Some(Rune(RUNE)),
+          mint: Some(Mint {
+            cap: Some(2),
+            limit: Some(1000),
+            deadline: Some(12),
+            term: Some(2),
+          }),
+          ..default()
+        }),
+        ..default()
+      },
+      1,
+    );
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          timestamp: 9,
+          mint: Some(MintEntry {
+            cap: Some(2),
+            deadline: Some(12),
+            end: Some(11),
+            limit: Some(1000),
+          }),
+          ..default()
+        },
+      )],
+      [],
+    );
+
+    let txid1 = context.rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(id.block.try_into().unwrap(), 0, 0, Witness::new())],
+      op_return: Some(
+        Runestone {
+          claim: Some(id),
+          ..default()
+        }
+        .encipher(),
+      ),
+      ..default()
+    });
+
+    context.mine_blocks(1);
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          premine: 0,
+          timestamp: 9,
+          mints: 1,
+          etching: txid0,
+          mint: Some(MintEntry {
+            cap: Some(2),
+            deadline: Some(12),
+            end: Some(11),
+            limit: Some(1000),
+          }),
+          ..default()
+        },
+      )],
+      [(
+        OutPoint {
+          txid: txid1,
+          vout: 0,
+        },
+        vec![(id, 1000)],
+      )],
+    );
+
+    context.rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(3, 0, 0, Witness::new())],
+      op_return: Some(
+        Runestone {
+          claim: Some(id),
+          ..default()
+        }
+        .encipher(),
+      ),
+      ..default()
+    });
+
+    context.mine_blocks(1);
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          premine: 0,
+          timestamp: 9,
+          mint: Some(MintEntry {
+            cap: Some(2),
+            limit: Some(1000),
+            deadline: Some(12),
+            end: Some(11),
+          }),
+          mints: 1,
+          ..default()
+        },
+      )],
+      [(
+        OutPoint {
+          txid: txid1,
+          vout: 0,
+        },
+        vec![(id, 1000)],
+      )],
+    );
+  }
+
+  #[test]
+  fn open_mints_with_deadline_before_end() {
+    let context = Context::builder().arg("--index-runes").build();
+
+    context.mine_blocks(1);
+
+    let (txid0, id) = context.etch(
+      Runestone {
+        etching: Some(Etching {
+          rune: Some(Rune(RUNE)),
+          mint: Some(Mint {
+            cap: Some(2),
+            limit: Some(1000),
+            deadline: Some(11),
+            term: Some(3),
+          }),
+          ..default()
+        }),
+        ..default()
+      },
+      1,
+    );
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          timestamp: id.block,
+          mint: Some(MintEntry {
+            cap: Some(2),
+            deadline: Some(11),
+            end: Some(12),
+            limit: Some(1000),
+          }),
+          ..default()
+        },
+      )],
+      [],
+    );
+
+    let txid1 = context.rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(3, 0, 0, Witness::new())],
+      op_return: Some(
+        Runestone {
+          claim: Some(id),
+          ..default()
+        }
+        .encipher(),
+      ),
+      ..default()
+    });
+
+    context.mine_blocks(1);
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          premine: 0,
+          timestamp: id.block,
+          mints: 1,
+          etching: txid0,
+          mint: Some(MintEntry {
+            cap: Some(2),
+            deadline: Some(11),
+            end: Some(12),
+            limit: Some(1000),
+          }),
+          ..default()
+        },
+      )],
+      [(
+        OutPoint {
+          txid: txid1,
+          vout: 0,
+        },
+        vec![(id, 1000)],
+      )],
+    );
+
+    context.rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(4, 0, 0, Witness::new())],
+      op_return: Some(
+        Runestone {
+          claim: Some(id),
+          ..default()
+        }
+        .encipher(),
+      ),
+      ..default()
+    });
+
+    context.mine_blocks(1);
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          premine: 0,
+          timestamp: id.block,
+          mint: Some(MintEntry {
+            cap: Some(2),
+            limit: Some(1000),
+            deadline: Some(11),
+            end: Some(12),
+          }),
+          mints: 1,
+          ..default()
+        },
+      )],
+      [(
+        OutPoint {
+          txid: txid1,
+          vout: 0,
+        },
+        vec![(id, 1000)],
+      )],
+    );
+  }
+
+  #[test]
+  fn open_mints_can_be_limited_to_deadline() {
+    let context = Context::builder().arg("--index-runes").build();
+
+    let (txid0, id) = context.etch(
+      Runestone {
+        etching: Some(Etching {
+          rune: Some(Rune(RUNE)),
+          mint: Some(Mint {
+            limit: Some(1000),
+            cap: Some(100),
+            deadline: Some(RUNE_COMMIT_INTERVAL + 4),
+            ..default()
+          }),
+          ..default()
+        }),
+        ..default()
+      },
+      1,
+    );
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          timestamp: id.block,
+          mint: Some(MintEntry {
+            deadline: Some(id.block + 2),
+            limit: Some(1000),
+            cap: Some(100),
+            ..default()
+          }),
+          ..default()
+        },
+      )],
+      [],
+    );
+
+    let txid1 = context.rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(2, 0, 0, Witness::new())],
+      op_return: Some(
+        Runestone {
+          edicts: vec![Edict {
+            id,
+            amount: 1000,
+            output: 0,
+          }],
+          claim: Some(id),
+          ..default()
+        }
+        .encipher(),
+      ),
+      ..default()
+    });
+
+    context.mine_blocks(1);
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          timestamp: id.block,
+          mints: 1,
+          etching: txid0,
+          mint: Some(MintEntry {
+            deadline: Some(id.block + 2),
+            limit: Some(1000),
+            cap: Some(100),
+            ..default()
+          }),
+          ..default()
+        },
+      )],
+      [(
+        OutPoint {
+          txid: txid1,
+          vout: 0,
+        },
+        vec![(id, 1000)],
+      )],
+    );
+
+    context.rpc_server.broadcast_tx(TransactionTemplate {
+      inputs: &[(3, 0, 0, Witness::new())],
+      op_return: Some(
+        Runestone {
+          edicts: vec![Edict {
+            id,
+            amount: 1000,
+            output: 0,
+          }],
+          claim: Some(id),
+          ..default()
+        }
+        .encipher(),
+      ),
+      ..default()
+    });
+
+    context.mine_blocks(1);
+
+    context.assert_runes(
+      [(
+        id,
+        RuneEntry {
+          etching: txid0,
+          spaced_rune: SpacedRune {
+            rune: Rune(RUNE),
+            spacers: 0,
+          },
+          timestamp: id.block,
+          mint: Some(MintEntry {
+            limit: Some(1000),
+            deadline: Some(id.block + 2),
+            cap: Some(100),
+            ..default()
+          }),
+          mints: 1,
+          ..default()
+        },
+      )],
+      [(
+        OutPoint {
+          txid: txid1,
+          vout: 0,
+        },
+        vec![(id, 1000)],
+      )],
+    );
+  }
+
+  #[test]
   fn open_mints_can_be_limited_to_cap() {
     let context = Context::builder().arg("--index-runes").build();
 
@@ -4612,7 +4715,7 @@ mod tests {
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(1000),
             cap: Some(2),
             ..default()
@@ -4628,14 +4731,13 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
           timestamp: id.block,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(2),
             ..default()
@@ -4655,7 +4757,7 @@ mod tests {
             amount: 1000,
             output: 0,
           }],
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -4669,7 +4771,6 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
@@ -4677,7 +4778,7 @@ mod tests {
           timestamp: id.block,
           mints: 1,
           etching: txid0,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             cap: Some(2),
             limit: Some(1000),
             ..default()
@@ -4703,7 +4804,7 @@ mod tests {
             amount: 1000,
             output: 0,
           }],
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -4717,14 +4818,13 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
           timestamp: id.block,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(2),
             ..default()
@@ -4760,7 +4860,7 @@ mod tests {
             amount: 1000,
             output: 0,
           }],
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -4774,14 +4874,13 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
           timestamp: id.block,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(2),
             ..default()
@@ -4817,7 +4916,7 @@ mod tests {
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -4833,13 +4932,12 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -4861,7 +4959,7 @@ mod tests {
             amount: 0,
             output: 3,
           }],
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -4875,14 +4973,13 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
           timestamp: id.block,
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -4919,7 +5016,7 @@ mod tests {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
           premine: Some(2000),
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(1000),
             ..default()
           }),
@@ -4939,13 +5036,12 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             ..default()
           }),
@@ -4966,8 +5062,8 @@ mod tests {
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
-            offset: (None, Some(1)),
+          mint: Some(Mint {
+            term: Some(1),
             ..default()
           }),
           ..default()
@@ -4981,15 +5077,14 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: None,
-            offset: (None, Some(1)),
+            end: Some(id.block + 1),
             ..default()
           }),
           timestamp: id.block,
@@ -5004,12 +5099,12 @@ mod tests {
   fn premines_can_claim_over_the_max_limit() {
     let context = Context::builder().arg("--index-runes").build();
 
-    let (txid, id) = context.etch(
+    let (txid0, rune_id) = context.etch(
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
           premine: Some(2000),
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(1000),
             cap: Some(1),
             ..default()
@@ -5028,26 +5123,31 @@ mod tests {
 
     context.assert_runes(
       [(
-        id,
+        rune_id,
         RuneEntry {
-          block: id.block,
-          etching: txid,
+          etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(1),
             ..default()
           }),
-          timestamp: id.block,
+          timestamp: rune_id.block,
           premine: 2000,
           mints: 0,
           ..default()
         },
       )],
-      [(OutPoint { txid, vout: 0 }, vec![(id, 2000)])],
+      [(
+        OutPoint {
+          txid: txid0,
+          vout: 0,
+        },
+        vec![(rune_id, 2000)],
+      )],
     );
   }
 
@@ -5059,7 +5159,7 @@ mod tests {
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -5080,7 +5180,7 @@ mod tests {
             amount: 2000,
             output: 0,
           }],
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -5094,13 +5194,12 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -5128,7 +5227,7 @@ mod tests {
       Runestone {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -5144,13 +5243,12 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -5183,7 +5281,7 @@ mod tests {
               output: 0,
             },
           ],
-          mint: Some(id),
+          claim: Some(id),
           ..default()
         }
         .encipher(),
@@ -5197,13 +5295,12 @@ mod tests {
       [(
         id,
         RuneEntry {
-          block: id.block,
           etching: txid0,
           spaced_rune: SpacedRune {
             rune: Rune(RUNE),
             spacers: 0,
           },
-          terms: Some(Terms {
+          mint: Some(MintEntry {
             limit: Some(1000),
             cap: Some(100),
             ..default()
@@ -5244,7 +5341,7 @@ mod tests {
     let runestone = Runestone {
       etching: Some(Etching {
         rune: Some(Rune(RUNE)),
-        terms: Some(Terms {
+        mint: Some(Mint {
           limit: Some(1000),
           ..default()
         }),
@@ -5304,7 +5401,7 @@ mod tests {
     let runestone = Runestone {
       etching: Some(Etching {
         rune: Some(Rune(RUNE)),
-        terms: Some(Terms {
+        mint: Some(Mint {
           limit: Some(1000),
           ..default()
         }),
@@ -5364,7 +5461,7 @@ mod tests {
     let runestone = Runestone {
       etching: Some(Etching {
         rune: Some(Rune(RUNE)),
-        terms: Some(Terms {
+        mint: Some(Mint {
           limit: Some(1000),
           ..default()
         }),

@@ -5,10 +5,10 @@ const MAX_SPACERS: u32 = 0b00000111_11111111_11111111_11111111;
 #[derive(Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct Runestone {
   pub cenotaph: bool,
+  pub claim: Option<RuneId>,
+  pub default_output: Option<u32>,
   pub edicts: Vec<Edict>,
   pub etching: Option<Etching>,
-  pub mint: Option<RuneId>,
-  pub pointer: Option<u32>,
 }
 
 struct Message {
@@ -101,13 +101,15 @@ impl Runestone {
       mut fields,
     } = Message::from_integers(transaction, &integers);
 
-    let mint = Tag::Mint.take(&mut fields, |[block, tx]| {
+    let claim = Tag::Claim.take(&mut fields, |[block, tx]| {
       RuneId::new(block.try_into().ok()?, tx.try_into().ok()?)
     });
 
-    let pointer = Tag::Pointer.take(&mut fields, |[pointer]| {
-      let pointer = u32::try_from(pointer).ok()?;
-      (pointer.into_usize() < transaction.output.len()).then_some(pointer)
+    let deadline = Tag::Deadline.take(&mut fields, |[deadline]| u32::try_from(deadline).ok());
+
+    let default_output = Tag::DefaultOutput.take(&mut fields, |[default_output]| {
+      let default_output = u32::try_from(default_output).ok()?;
+      (default_output.into_usize() < transaction.output.len()).then_some(default_output)
     });
 
     let divisibility = Tag::Divisibility.take(&mut fields, |[divisibility]| {
@@ -132,29 +134,15 @@ impl Runestone {
       char::from_u32(u32::try_from(symbol).ok()?)
     });
 
-    let offset = (
-      Tag::OffsetStart.take(&mut fields, |[start_offset]| {
-        u64::try_from(start_offset).ok()
-      }),
-      Tag::OffsetEnd.take(&mut fields, |[end_offset]| u64::try_from(end_offset).ok()),
-    );
-
-    let height = (
-      Tag::HeightStart.take(&mut fields, |[start_height]| {
-        u64::try_from(start_height).ok()
-      }),
-      Tag::HeightEnd.take(&mut fields, |[start_height]| {
-        u64::try_from(start_height).ok()
-      }),
-    );
+    let term = Tag::Term.take(&mut fields, |[term]| u32::try_from(term).ok());
 
     let mut flags = Tag::Flags
       .take(&mut fields, |[flags]| Some(flags))
       .unwrap_or_default();
 
-    let etching = Flag::Etching.take(&mut flags);
+    let etch = Flag::Etch.take(&mut flags);
 
-    let terms = Flag::Terms.take(&mut flags);
+    let mint = Flag::Mint.take(&mut flags);
 
     let overflow = (|| {
       let premine = premine.unwrap_or_default();
@@ -164,26 +152,30 @@ impl Runestone {
     })()
     .is_none();
 
-    let etching = etching.then_some(Etching {
-      divisibility,
-      premine,
-      rune,
-      spacers,
-      symbol,
-      terms: terms.then_some(Terms {
-        cap,
-        height,
-        limit,
-        offset,
-      }),
-    });
+    let etching = if etch {
+      Some(Etching {
+        divisibility,
+        mint: mint.then_some(Mint {
+          cap,
+          deadline,
+          limit,
+          term,
+        }),
+        premine,
+        rune,
+        spacers,
+        symbol,
+      })
+    } else {
+      None
+    };
 
     Ok(Some(Self {
       cenotaph: cenotaph || overflow || flags != 0 || fields.keys().any(|tag| tag % 2 == 0),
+      claim,
+      default_output,
       edicts,
       etching,
-      mint,
-      pointer,
     }))
   }
 
@@ -192,35 +184,60 @@ impl Runestone {
 
     if let Some(etching) = self.etching {
       let mut flags = 0;
-      Flag::Etching.set(&mut flags);
+      Flag::Etch.set(&mut flags);
 
-      if etching.terms.is_some() {
-        Flag::Terms.set(&mut flags);
+      if etching.mint.is_some() {
+        Flag::Mint.set(&mut flags);
       }
 
       Tag::Flags.encode([flags], &mut payload);
 
-      Tag::Rune.encode_option(etching.rune.map(|rune| rune.0), &mut payload);
-      Tag::Divisibility.encode_option(etching.divisibility, &mut payload);
-      Tag::Spacers.encode_option(etching.spacers, &mut payload);
-      Tag::Symbol.encode_option(etching.symbol, &mut payload);
-      Tag::Premine.encode_option(etching.premine, &mut payload);
+      if let Some(rune) = etching.rune {
+        Tag::Rune.encode([rune.0], &mut payload);
+      }
 
-      if let Some(terms) = etching.terms {
-        Tag::Limit.encode_option(terms.limit, &mut payload);
-        Tag::Cap.encode_option(terms.cap, &mut payload);
-        Tag::HeightStart.encode_option(terms.height.0, &mut payload);
-        Tag::HeightEnd.encode_option(terms.height.1, &mut payload);
-        Tag::OffsetStart.encode_option(terms.offset.0, &mut payload);
-        Tag::OffsetEnd.encode_option(terms.offset.1, &mut payload);
+      if let Some(divisibility) = etching.divisibility {
+        Tag::Divisibility.encode([divisibility.into()], &mut payload);
+      }
+
+      if let Some(spacers) = etching.spacers {
+        Tag::Spacers.encode([spacers.into()], &mut payload);
+      }
+
+      if let Some(symbol) = etching.symbol {
+        Tag::Symbol.encode([symbol.into()], &mut payload);
+      }
+
+      if let Some(premine) = etching.premine {
+        Tag::Premine.encode([premine], &mut payload);
+      }
+
+      if let Some(mint) = etching.mint {
+        if let Some(deadline) = mint.deadline {
+          Tag::Deadline.encode([deadline.into()], &mut payload);
+        }
+
+        if let Some(limit) = mint.limit {
+          Tag::Limit.encode([limit], &mut payload);
+        }
+
+        if let Some(term) = mint.term {
+          Tag::Term.encode([term.into()], &mut payload);
+        }
+
+        if let Some(cap) = mint.cap {
+          Tag::Cap.encode([cap], &mut payload);
+        }
       }
     }
 
-    if let Some(RuneId { block, tx }) = self.mint {
-      Tag::Mint.encode([block.into(), tx.into()], &mut payload);
+    if let Some(RuneId { block, tx }) = self.claim {
+      Tag::Claim.encode([block.into(), tx.into()], &mut payload);
     }
 
-    Tag::Pointer.encode_option(self.pointer, &mut payload);
+    if let Some(default_output) = self.default_output {
+      Tag::DefaultOutput.encode([default_output.into()], &mut payload);
+    }
 
     if self.cenotaph {
       Tag::Cenotaph.encode([0], &mut payload);
@@ -589,7 +606,7 @@ mod tests {
     assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Body.into(),
         1,
         1,
@@ -613,7 +630,7 @@ mod tests {
     pretty_assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Rune.into(),
         4,
         Tag::Body.into(),
@@ -642,8 +659,8 @@ mod tests {
     pretty_assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Terms.mask(),
-        Tag::OffsetEnd.into(),
+        Flag::Mint.mask(),
+        Tag::Term.into(),
         4,
         Tag::Body.into(),
         1,
@@ -667,8 +684,8 @@ mod tests {
     pretty_assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask() | Flag::Terms.mask(),
-        Tag::OffsetEnd.into(),
+        Flag::Etch.mask() | Flag::Mint.mask(),
+        Tag::Term.into(),
         4,
         Tag::Body.into(),
         1,
@@ -683,8 +700,8 @@ mod tests {
           output: 0,
         }],
         etching: Some(Etching {
-          terms: Some(Terms {
-            offset: (None, Some(4)),
+          mint: Some(Mint {
+            term: Some(4),
             ..default()
           }),
           ..default()
@@ -699,7 +716,7 @@ mod tests {
     assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask() | Flag::Terms.mask(),
+        Flag::Etch.mask() | Flag::Mint.mask(),
         Tag::Limit.into(),
         4,
         Tag::Body.into(),
@@ -715,7 +732,7 @@ mod tests {
           output: 0,
         }],
         etching: Some(Etching {
-          terms: Some(Terms {
+          mint: Some(Mint {
             limit: Some(4),
             ..default()
           }),
@@ -756,7 +773,7 @@ mod tests {
     pretty_assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Rune.into(),
         4,
         Tag::Rune.into(),
@@ -788,7 +805,7 @@ mod tests {
     pretty_assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Divisibility.into(),
         4,
         Tag::Divisibility.into(),
@@ -933,7 +950,7 @@ mod tests {
     assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Rune.into(),
         4,
         Tag::Divisibility.into(),
@@ -965,7 +982,7 @@ mod tests {
     assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Rune.into(),
         4,
         Tag::Divisibility.into(),
@@ -996,7 +1013,7 @@ mod tests {
     assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Symbol.into(),
         u128::from(u32::from(char::MAX) + 1),
         Tag::Body.into(),
@@ -1022,7 +1039,7 @@ mod tests {
     pretty_assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Rune.into(),
         4,
         Tag::Symbol.into(),
@@ -1054,16 +1071,18 @@ mod tests {
     pretty_assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask() | Flag::Terms.mask(),
+        Flag::Etch.mask() | Flag::Mint.mask(),
         Tag::Rune.into(),
         4,
+        Tag::Deadline.into(),
+        7,
         Tag::Divisibility.into(),
         1,
         Tag::Spacers.into(),
         5,
         Tag::Symbol.into(),
         'a'.into(),
-        Tag::OffsetEnd.into(),
+        Tag::Term.into(),
         2,
         Tag::Limit.into(),
         3,
@@ -1071,11 +1090,11 @@ mod tests {
         8,
         Tag::Cap.into(),
         9,
-        Tag::Pointer.into(),
+        Tag::DefaultOutput.into(),
         0,
-        Tag::Mint.into(),
+        Tag::Claim.into(),
         1,
-        Tag::Mint.into(),
+        Tag::Claim.into(),
         1,
         Tag::Body.into(),
         1,
@@ -1091,11 +1110,11 @@ mod tests {
         }],
         etching: Some(Etching {
           rune: Some(Rune(4)),
-          terms: Some(Terms {
+          mint: Some(Mint {
             cap: Some(9),
-            offset: (None, Some(2)),
+            deadline: Some(7),
+            term: Some(2),
             limit: Some(3),
-            height: (None, None),
           }),
           premine: Some(8),
           divisibility: Some(1),
@@ -1103,8 +1122,8 @@ mod tests {
           spacers: Some(5),
         }),
         cenotaph: false,
-        pointer: Some(0),
-        mint: Some(RuneId::new(1, 1).unwrap()),
+        default_output: Some(0),
+        claim: Some(RuneId::new(1, 1).unwrap()),
       },
     );
   }
@@ -1119,7 +1138,7 @@ mod tests {
         1,
         Tag::Symbol.into(),
         'a'.into(),
-        Tag::OffsetEnd.into(),
+        Tag::Term.into(),
         2,
         Tag::Limit.into(),
         3,
@@ -1145,7 +1164,7 @@ mod tests {
     assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Rune.into(),
         4,
         Tag::Divisibility.into(),
@@ -1180,7 +1199,7 @@ mod tests {
     pretty_assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
+        Flag::Etch.mask(),
         Tag::Divisibility.into(),
         Tag::Body.into(),
         Tag::Body.into(),
@@ -1274,7 +1293,7 @@ mod tests {
                 .unwrap()
             )
             .push_slice::<&PushBytes>(
-              varint::encode(Flag::Etching.mask())
+              varint::encode(Flag::Etch.mask())
                 .as_slice()
                 .try_into()
                 .unwrap()
@@ -1435,18 +1454,18 @@ mod tests {
       Vec::new(),
       Some(Etching {
         divisibility: Some(MAX_DIVISIBILITY),
-        terms: Some(Terms {
-          cap: Some(u32::MAX.into()),
-          limit: Some(u64::MAX.into()),
-          offset: (Some(u32::MAX.into()), Some(u32::MAX.into())),
-          height: (Some(u32::MAX.into()), Some(u32::MAX.into())),
+        mint: Some(Mint {
+          cap: None,
+          deadline: Some(10000),
+          limit: Some(1),
+          term: Some(1),
         }),
-        premine: Some(u64::MAX.into()),
-        rune: Some(Rune(u128::MAX)),
-        symbol: Some('\u{10FFFF}'),
-        spacers: Some(MAX_SPACERS),
+        premine: None,
+        rune: Some(Rune(0)),
+        symbol: Some('$'),
+        spacers: Some(1),
       }),
-      89,
+      20,
     );
 
     case(
@@ -1636,8 +1655,8 @@ mod tests {
     assert_eq!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask(),
-        Tag::OffsetEnd.into(),
+        Flag::Etch.mask(),
+        Tag::Term.into(),
         u128::from(u64::MAX) + 1,
       ]),
       Runestone {
@@ -1689,77 +1708,73 @@ mod tests {
 
     case(
       Runestone {
-        cenotaph: true,
+        etching: Some(Etching {
+          premine: Some(1),
+          divisibility: Some(1),
+          mint: Some(Mint {
+            cap: Some(1),
+            deadline: Some(2),
+            limit: Some(3),
+            term: Some(5),
+          }),
+          symbol: Some('@'),
+          rune: Some(Rune(4)),
+          spacers: Some(6),
+        }),
         edicts: vec![
           Edict {
-            id: RuneId::new(2, 3).unwrap(),
-            amount: 1,
+            amount: 8,
+            id: rune_id(9),
             output: 0,
           },
           Edict {
-            id: RuneId::new(5, 6).unwrap(),
-            amount: 4,
+            amount: 5,
+            id: rune_id(6),
             output: 1,
           },
         ],
-        etching: Some(Etching {
-          divisibility: Some(7),
-          premine: Some(8),
-          rune: Some(Rune(9)),
-          spacers: Some(10),
-          symbol: Some('@'),
-          terms: Some(Terms {
-            cap: Some(11),
-            height: (Some(12), Some(13)),
-            limit: Some(14),
-            offset: (Some(15), Some(16)),
-          }),
-        }),
-        mint: Some(RuneId::new(17, 18).unwrap()),
-        pointer: Some(0),
+        default_output: Some(0),
+        cenotaph: true,
+        claim: Some(rune_id(12)),
       },
       &[
         Tag::Flags.into(),
-        Flag::Etching.mask() | Flag::Terms.mask(),
+        Flag::Etch.mask() | Flag::Mint.mask(),
         Tag::Rune.into(),
-        9,
+        4,
         Tag::Divisibility.into(),
-        7,
+        1,
         Tag::Spacers.into(),
-        10,
+        6,
         Tag::Symbol.into(),
         '@'.into(),
         Tag::Premine.into(),
-        8,
+        1,
+        Tag::Deadline.into(),
+        2,
         Tag::Limit.into(),
-        14,
+        3,
+        Tag::Term.into(),
+        5,
         Tag::Cap.into(),
-        11,
-        Tag::HeightStart.into(),
+        1,
+        Tag::Claim.into(),
+        1,
+        Tag::Claim.into(),
         12,
-        Tag::HeightEnd.into(),
-        13,
-        Tag::OffsetStart.into(),
-        15,
-        Tag::OffsetEnd.into(),
-        16,
-        Tag::Mint.into(),
-        17,
-        Tag::Mint.into(),
-        18,
-        Tag::Pointer.into(),
+        Tag::DefaultOutput.into(),
         0,
         Tag::Cenotaph.into(),
         0,
         Tag::Body.into(),
-        2,
-        3,
+        1,
+        6,
+        5,
         1,
         0,
         3,
-        6,
-        4,
-        1,
+        8,
+        0,
       ],
     );
 
@@ -1768,7 +1783,7 @@ mod tests {
         etching: Some(Etching {
           premine: None,
           divisibility: None,
-          terms: None,
+          mint: None,
           symbol: None,
           rune: Some(Rune(3)),
           spacers: None,
@@ -1776,7 +1791,7 @@ mod tests {
         cenotaph: false,
         ..default()
       },
-      &[Tag::Flags.into(), Flag::Etching.mask(), Tag::Rune.into(), 3],
+      &[Tag::Flags.into(), Flag::Etch.mask(), Tag::Rune.into(), 3],
     );
 
     case(
@@ -1784,7 +1799,7 @@ mod tests {
         etching: Some(Etching {
           premine: None,
           divisibility: None,
-          terms: None,
+          mint: None,
           symbol: None,
           rune: None,
           spacers: None,
@@ -1792,7 +1807,7 @@ mod tests {
         cenotaph: false,
         ..default()
       },
-      &[Tag::Flags.into(), Flag::Etching.mask()],
+      &[Tag::Flags.into(), Flag::Etch.mask()],
     );
 
     case(
@@ -1858,24 +1873,24 @@ mod tests {
   }
 
   #[test]
-  fn partial_mint_produces_cenotaph() {
-    assert!(decipher(&[Tag::Mint.into(), 1]).cenotaph);
+  fn partial_claim_produces_cenotaph() {
+    assert!(decipher(&[Tag::Claim.into(), 1]).cenotaph);
   }
 
   #[test]
-  fn invalid_mint_produces_cenotaph() {
-    assert!(decipher(&[Tag::Mint.into(), 0, Tag::Mint.into(), 1]).cenotaph);
+  fn invalid_claim_produces_cenotaph() {
+    assert!(decipher(&[Tag::Claim.into(), 0, Tag::Claim.into(), 1]).cenotaph);
   }
 
   #[test]
   fn invalid_deadline_produces_cenotaph() {
-    assert!(decipher(&[Tag::OffsetEnd.into(), u128::MAX]).cenotaph);
+    assert!(decipher(&[Tag::Deadline.into(), u128::MAX]).cenotaph);
   }
 
   #[test]
   fn invalid_default_output_produces_cenotaph() {
-    assert!(decipher(&[Tag::Pointer.into(), 1]).cenotaph);
-    assert!(decipher(&[Tag::Pointer.into(), u128::MAX]).cenotaph);
+    assert!(decipher(&[Tag::DefaultOutput.into(), 1]).cenotaph);
+    assert!(decipher(&[Tag::DefaultOutput.into(), u128::MAX]).cenotaph);
   }
 
   #[test]
@@ -1901,7 +1916,7 @@ mod tests {
 
   #[test]
   fn invalid_term_produces_cenotaph() {
-    assert!(decipher(&[Tag::OffsetEnd.into(), u128::MAX]).cenotaph);
+    assert!(decipher(&[Tag::Term.into(), u128::MAX]).cenotaph);
   }
 
   #[test]
@@ -1909,7 +1924,7 @@ mod tests {
     assert!(
       !decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask() | Flag::Terms.mask(),
+        Flag::Etch.mask() | Flag::Mint.mask(),
         Tag::Cap.into(),
         1,
         Tag::Limit.into(),
@@ -1921,7 +1936,7 @@ mod tests {
     assert!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask() | Flag::Terms.mask(),
+        Flag::Etch.mask() | Flag::Mint.mask(),
         Tag::Cap.into(),
         2,
         Tag::Limit.into(),
@@ -1933,7 +1948,7 @@ mod tests {
     assert!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask() | Flag::Terms.mask(),
+        Flag::Etch.mask() | Flag::Mint.mask(),
         Tag::Cap.into(),
         2,
         Tag::Limit.into(),
@@ -1945,7 +1960,7 @@ mod tests {
     assert!(
       decipher(&[
         Tag::Flags.into(),
-        Flag::Etching.mask() | Flag::Terms.mask(),
+        Flag::Etch.mask() | Flag::Mint.mask(),
         Tag::Premine.into(),
         1,
         Tag::Cap.into(),
