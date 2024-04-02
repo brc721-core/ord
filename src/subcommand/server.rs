@@ -2796,7 +2796,7 @@ mod tests {
       format!(
         ".*<title>Rune AAAAAAAAAAAAA</title>.*
 <h1>AAAAAAAAAAAAA</h1>
-.*<a.*<iframe .* src=/preview/{txid}i0></iframe></a>.*
+<iframe .* src=/preview/{txid}i0></iframe>
 <dl>
   <dt>number</dt>
   <dd>0</dd>

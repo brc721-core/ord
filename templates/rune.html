@@ -1,8 +1,6 @@
 <h1>{{ self.entry.spaced_rune }}</h1>
 %% if let Some(parent) = self.parent {
-  <div class=thumbnails>
-    {{Iframe::thumbnail(parent)}}
-  </div>
+{{Iframe::main(parent)}}
 %% }
 <dl>
   <dt>number</dt>
