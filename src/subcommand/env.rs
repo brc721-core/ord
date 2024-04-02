@@ -124,7 +124,8 @@ rpcport={bitcoind_port}
         "failed to generate receive address: {status}"
       );
 
-      let receive = serde_json::from_slice::<wallet::receive::Output>(&output.stdout)?;
+      let receive =
+        serde_json::from_slice::<crate::subcommand::wallet::receive::Output>(&output.stdout)?;
 
       let status = Command::new("bitcoin-cli")
         .arg(format!("-datadir={relative}"))

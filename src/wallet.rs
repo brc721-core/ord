@@ -41,7 +41,7 @@ impl OrdClient {
 }
 
 pub(crate) struct Wallet {
-  bitcoin_client: Client,
+  bitcoin_client: bitcoincore_rpc::Client,
   has_rune_index: bool,
   has_sat_index: bool,
   rpc_url: Url,
@@ -61,7 +61,7 @@ impl Wallet {
     settings: Settings,
     rpc_url: Url,
   ) -> Result<Self> {
-    let mut headers = HeaderMap::new();
+    let mut headers = header::HeaderMap::new();
 
     headers.insert(
       header::ACCEPT,
@@ -209,7 +209,7 @@ impl Wallet {
     Ok(output_json)
   }
 
-  fn get_utxos(bitcoin_client: &Client) -> Result<BTreeMap<OutPoint, TxOut>> {
+  fn get_utxos(bitcoin_client: &bitcoincore_rpc::Client) -> Result<BTreeMap<OutPoint, TxOut>> {
     Ok(
       bitcoin_client
         .list_unspent(None, None, None, None, None)?
@@ -227,10 +227,12 @@ impl Wallet {
     )
   }
 
-  fn get_locked_utxos(bitcoin_client: &Client) -> Result<BTreeMap<OutPoint, TxOut>> {
+  fn get_locked_utxos(
+    bitcoin_client: &bitcoincore_rpc::Client,
+  ) -> Result<BTreeMap<OutPoint, TxOut>> {
     #[derive(Deserialize)]
     pub(crate) struct JsonOutPoint {
-      txid: Txid,
+      txid: bitcoin::Txid,
       vout: u32,
     }
 
@@ -323,7 +325,7 @@ impl Wallet {
     )))
   }
 
-  pub(crate) fn bitcoin_client(&self) -> &Client {
+  pub(crate) fn bitcoin_client(&self) -> &bitcoincore_rpc::Client {
     &self.bitcoin_client
   }
 
@@ -623,7 +625,7 @@ impl Wallet {
 
     let public_key = secret_key.to_public(secp)?;
 
-    let mut key_map = HashMap::new();
+    let mut key_map = std::collections::HashMap::new();
     key_map.insert(public_key.clone(), secret_key);
 
     let descriptor = miniscript::descriptor::Descriptor::new_tr(public_key, None)?;
