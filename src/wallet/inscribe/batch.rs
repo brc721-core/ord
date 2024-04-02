@@ -426,7 +426,6 @@ impl Batch {
 
     let rune;
     let premine;
-    let runestone;
 
     if let Some(etch) = self.etch {
       let mut edicts = Vec::new();
@@ -456,7 +455,7 @@ impl Batch {
         destination = None;
       }
 
-      let inner = Runestone {
+      let script_pubkey = Runestone {
         cenotaph: false,
         claim: None,
         default_output: None,
@@ -477,11 +476,8 @@ impl Batch {
           spacers: etch.rune.spacers,
           symbol: Some(etch.symbol),
         }),
-      };
-
-      let script_pubkey = inner.encipher();
-
-      runestone = Some(inner);
+      }
+      .encipher();
 
       ensure!(
         script_pubkey.len() <= 82,
@@ -498,7 +494,6 @@ impl Batch {
     } else {
       premine = 0;
       rune = None;
-      runestone = None;
     }
 
     let commit_input = usize::from(self.parent_info.is_some()) + self.reveal_satpoints.len();
@@ -636,18 +631,6 @@ impl Batch {
 
     let total_fees =
       Self::calculate_fee(&unsigned_commit_tx, &utxos) + Self::calculate_fee(&reveal_tx, &utxos);
-
-    match (Runestone::from_transaction(&reveal_tx), runestone) {
-      (Some(actual), Some(expected)) => assert_eq!(
-        actual, expected,
-        "commit transaction runestone did not match expected runestone"
-      ),
-      (Some(_), None) => panic!("commit transaction contained runestone, but none was expected"),
-      (None, Some(_)) => {
-        panic!("commit transaction did not contain runestone, but one was expected")
-      }
-      (None, None) => {}
-    }
 
     let rune = rune.map(|(destination, rune, vout)| RuneInfo {
       destination: destination.map(|destination| uncheck(&destination)),
