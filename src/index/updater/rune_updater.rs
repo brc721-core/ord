@@ -1,4 +1,7 @@
-use super::*;
+use {
+  super::*,
+  crate::runes::{Edict, Runestone},
+};
 
 struct Mint {
   id: RuneId,
@@ -38,7 +41,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
     let cenotaph = runestone
       .as_ref()
-      .map(|runestone| runestone.is_cenotaph())
+      .map(|runestone| runestone.cenotaph)
       .unwrap_or_default();
 
     let pointer = runestone.as_ref().and_then(|runestone| runestone.pointer);
@@ -193,7 +196,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
       balances.sort();
 
       for (id, balance) in balances {
-        Index::encode_rune_balance(id, balance, &mut buffer);
+        id.encode_balance(balance, &mut buffer);
       }
 
       self.outpoint_to_balances.insert(
@@ -308,7 +311,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
         .statistic_to_count
         .insert(&Statistic::ReservedRunes.into(), reserved_runes + 1)?;
 
-      Rune::reserved(reserved_runes.into()).unwrap()
+      Rune::reserved(reserved_runes.into())
     };
 
     Ok(Some(Etched {
@@ -412,7 +415,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
         let buffer = guard.value();
         let mut i = 0;
         while i < buffer.len() {
-          let ((id, balance), len) = Index::decode_rune_balance(&buffer[i..]).unwrap();
+          let ((id, balance), len) = RuneId::decode_balance(&buffer[i..]).unwrap();
           i += len;
           *unallocated.entry(id).or_default() += balance;
         }

@@ -19,7 +19,7 @@ pub struct RuneId {
 }
 
 impl RuneId {
-  pub fn new(block: u64, tx: u32) -> Option<RuneId> {
+  pub(crate) fn new(block: u64, tx: u32) -> Option<RuneId> {
     let id = RuneId { block, tx };
 
     if id.block == 0 && id.tx > 0 {
@@ -29,7 +29,7 @@ impl RuneId {
     Some(id)
   }
 
-  pub fn delta(self, next: RuneId) -> Option<(u128, u128)> {
+  pub(crate) fn delta(self, next: RuneId) -> Option<(u128, u128)> {
     let block = next.block.checked_sub(self.block)?;
 
     let tx = if block == 0 {
@@ -41,7 +41,7 @@ impl RuneId {
     Some((block.into(), tx.into()))
   }
 
-  pub fn next(self: RuneId, block: u128, tx: u128) -> Option<RuneId> {
+  pub(crate) fn next(self: RuneId, block: u128, tx: u128) -> Option<RuneId> {
     RuneId::new(
       self.block.checked_add(block.try_into().ok()?)?,
       if block == 0 {
@@ -51,11 +51,32 @@ impl RuneId {
       },
     )
   }
+
+  pub(crate) fn encode_balance(self, balance: u128, buffer: &mut Vec<u8>) {
+    varint::encode_to_vec(self.block.into(), buffer);
+    varint::encode_to_vec(self.tx.into(), buffer);
+    varint::encode_to_vec(balance, buffer);
+  }
+
+  pub(crate) fn decode_balance(buffer: &[u8]) -> Option<((RuneId, u128), usize)> {
+    let mut len = 0;
+    let (block, block_len) = varint::decode(&buffer[len..])?;
+    len += block_len;
+    let (tx, tx_len) = varint::decode(&buffer[len..])?;
+    len += tx_len;
+    let id = RuneId {
+      block: block.try_into().ok()?,
+      tx: tx.try_into().ok()?,
+    };
+    let (balance, balance_len) = varint::decode(&buffer[len..])?;
+    len += balance_len;
+    Some(((id, balance), len))
+  }
 }
 
 impl Display for RuneId {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-    write!(f, "{}:{}", self.block, self.tx)
+    write!(f, "{}:{}", self.block, self.tx,)
   }
 }
 
@@ -63,33 +84,16 @@ impl FromStr for RuneId {
   type Err = Error;
 
   fn from_str(s: &str) -> Result<Self, Self::Err> {
-    let (height, index) = s.split_once(':').ok_or(Error::Separator)?;
+    let (height, index) = s
+      .split_once(':')
+      .ok_or_else(|| anyhow!("invalid rune ID: {s}"))?;
 
     Ok(Self {
-      block: height.parse().map_err(Error::Block)?,
-      tx: index.parse().map_err(Error::Transaction)?,
+      block: height.parse()?,
+      tx: index.parse()?,
     })
   }
 }
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-  Separator,
-  Block(ParseIntError),
-  Transaction(ParseIntError),
-}
-
-impl Display for Error {
-  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-    match self {
-      Self::Separator => write!(f, "missing separator"),
-      Self::Block(err) => write!(f, "invalid height: {err}"),
-      Self::Transaction(err) => write!(f, "invalid index: {err}"),
-    }
-  }
-}
-
-impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod tests {
@@ -145,15 +149,11 @@ mod tests {
 
   #[test]
   fn from_str() {
-    assert!(matches!("123".parse::<RuneId>(), Err(Error::Separator)));
-    assert!(matches!(":".parse::<RuneId>(), Err(Error::Block(_))));
-    assert!(matches!("1:".parse::<RuneId>(), Err(Error::Transaction(_))));
-    assert!(matches!(":2".parse::<RuneId>(), Err(Error::Block(_))));
-    assert!(matches!("a:2".parse::<RuneId>(), Err(Error::Block(_))));
-    assert!(matches!(
-      "1:a".parse::<RuneId>(),
-      Err(Error::Transaction(_)),
-    ));
+    assert!(":".parse::<RuneId>().is_err());
+    assert!("1:".parse::<RuneId>().is_err());
+    assert!(":2".parse::<RuneId>().is_err());
+    assert!("a:2".parse::<RuneId>().is_err());
+    assert!("1:a".parse::<RuneId>().is_err());
     assert_eq!("1:2".parse::<RuneId>().unwrap(), RuneId { block: 1, tx: 2 });
   }
 

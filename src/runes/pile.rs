@@ -131,7 +131,7 @@ mod tests {
     assert_eq!(
       Pile {
         amount: u128::MAX,
-        divisibility: 38,
+        divisibility: MAX_DIVISIBILITY,
         symbol: None,
       }
       .to_string(),

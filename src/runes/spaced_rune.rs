@@ -25,22 +25,22 @@ impl FromStr for SpacedRune {
       match c {
         'A'..='Z' => rune.push(c),
         '.' | '•' => {
-          let flag = 1 << rune.len().checked_sub(1).ok_or(Error::LeadingSpacer)?;
+          let flag = 1 << rune.len().checked_sub(1).context("leading spacer")?;
           if spacers & flag != 0 {
-            return Err(Error::DoubleSpacer);
+            bail!("double spacer");
           }
           spacers |= flag;
         }
-        _ => return Err(Error::Character(c)),
+        _ => bail!("invalid character"),
       }
     }
 
     if 32 - spacers.leading_zeros() >= rune.len().try_into().unwrap() {
-      return Err(Error::TrailingSpacer);
+      bail!("trailing spacer")
     }
 
     Ok(SpacedRune {
-      rune: rune.parse().map_err(Error::Rune)?,
+      rune: rune.parse()?,
       spacers,
     })
   }
@@ -61,29 +61,6 @@ impl Display for SpacedRune {
     Ok(())
   }
 }
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-  LeadingSpacer,
-  TrailingSpacer,
-  DoubleSpacer,
-  Character(char),
-  Rune(rune::Error),
-}
-
-impl Display for Error {
-  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-    match self {
-      Self::Character(c) => write!(f, "invalid character `{c}`"),
-      Self::DoubleSpacer => write!(f, "double spacer"),
-      Self::LeadingSpacer => write!(f, "leading spacer"),
-      Self::TrailingSpacer => write!(f, "trailing spacer"),
-      Self::Rune(err) => write!(f, "{err}"),
-    }
-  }
-}
-
-impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod tests {
@@ -117,23 +94,23 @@ mod tests {
     }
 
     assert_eq!(
-      ".A".parse::<SpacedRune>().unwrap_err(),
-      Error::LeadingSpacer,
+      ".A".parse::<SpacedRune>().unwrap_err().to_string(),
+      "leading spacer",
     );
 
     assert_eq!(
-      "A..B".parse::<SpacedRune>().unwrap_err(),
-      Error::DoubleSpacer,
+      "A..B".parse::<SpacedRune>().unwrap_err().to_string(),
+      "double spacer",
     );
 
     assert_eq!(
-      "A.".parse::<SpacedRune>().unwrap_err(),
-      Error::TrailingSpacer,
+      "A.".parse::<SpacedRune>().unwrap_err().to_string(),
+      "trailing spacer",
     );
 
     assert_eq!(
-      "Ax".parse::<SpacedRune>().unwrap_err(),
-      Error::Character('x')
+      "Ax".parse::<SpacedRune>().unwrap_err().to_string(),
+      "invalid character",
     );
 
     case("A.B", "AB", 0b1);
