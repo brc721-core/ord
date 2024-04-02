@@ -2,7 +2,7 @@ use {
   super::*,
   bitcoin::{
     absolute::LockTime, consensus::Encodable, opcodes, script, ScriptBuf, Sequence, Transaction,
-    TxIn, TxOut, Witness,
+    TxIn, Witness,
   },
   ord::{
     subcommand::decode::{CompactInscription, CompactOutput, RawOutput},
@@ -36,10 +36,7 @@ fn transaction() -> Vec<u8> {
       sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
       witness,
     }],
-    output: vec![TxOut {
-      script_pubkey: Runestone::default().encipher(),
-      value: 0,
-    }],
+    output: Vec::new(),
   };
 
   let mut buffer = Vec::new();
@@ -51,7 +48,7 @@ fn transaction() -> Vec<u8> {
 
 #[test]
 fn from_file() {
-  pretty_assert_eq!(
+  assert_eq!(
     CommandBuilder::new("decode --file transaction.bin")
       .write("transaction.bin", transaction())
       .run_and_deserialize_output::<RawOutput>(),
@@ -67,14 +64,13 @@ fn from_file() {
         pushnum: false,
         stutter: false,
       }],
-      runestone: Some(Runestone::default()),
     },
   );
 }
 
 #[test]
 fn from_stdin() {
-  pretty_assert_eq!(
+  assert_eq!(
     CommandBuilder::new("decode")
       .stdin(transaction())
       .run_and_deserialize_output::<RawOutput>(),
@@ -90,7 +86,6 @@ fn from_stdin() {
         pushnum: false,
         stutter: false,
       }],
-      runestone: Some(Runestone::default()),
     },
   );
 }
@@ -106,7 +101,7 @@ fn from_core() {
 
   let (_inscription, reveal) = inscribe(&bitcoin_rpc_server, &ord_rpc_server);
 
-  pretty_assert_eq!(
+  assert_eq!(
     CommandBuilder::new(format!("decode --txid {reveal}"))
       .bitcoin_rpc_server(&bitcoin_rpc_server)
       .run_and_deserialize_output::<RawOutput>(),
@@ -122,14 +117,13 @@ fn from_core() {
         pushnum: false,
         stutter: false,
       }],
-      runestone: None,
     },
   );
 }
 
 #[test]
 fn compact() {
-  pretty_assert_eq!(
+  assert_eq!(
     CommandBuilder::new("decode --compact --file transaction.bin")
       .write("transaction.bin", transaction())
       .run_and_deserialize_output::<CompactOutput>(),
@@ -146,7 +140,6 @@ fn compact() {
         pointer: None,
         unrecognized_even_field: false,
       }],
-      runestone: Some(Runestone::default()),
     },
   );
 }
