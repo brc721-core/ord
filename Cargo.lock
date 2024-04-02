@@ -2267,7 +2267,6 @@ dependencies = [
  "mime_guess",
  "miniscript",
  "mp4",
- "nix",
  "ord-bitcoincore-rpc",
  "ordinals",
  "pretty_assertions",
