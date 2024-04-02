@@ -362,10 +362,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
       };
 
       for instruction in tapscript.instructions() {
-        // ignore errors, since the extracted script may not be valid
-        let Ok(instruction) = instruction else {
-          break;
-        };
+        let instruction = instruction?;
 
         let Some(pushbytes) = instruction.push_bytes() else {
           continue;

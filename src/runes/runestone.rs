@@ -17,7 +17,6 @@ struct Message {
   fields: HashMap<u128, VecDeque<u128>>,
 }
 
-#[derive(Debug, PartialEq)]
 enum Payload {
   Valid(Vec<u8>),
   Invalid,
@@ -265,9 +264,8 @@ impl Runestone {
         continue;
       }
 
-      // followed by the protocol identifier, ignoring errors, since OP_RETURN
-      // scripts may be invalid
-      if instructions.next().transpose().ok().flatten() != Some(Instruction::Op(MAGIC_NUMBER)) {
+      // followed by the protocol identifier
+      if instructions.next().transpose()? != Some(Instruction::Op(MAGIC_NUMBER)) {
         continue;
       }
 
@@ -275,7 +273,7 @@ impl Runestone {
       let mut payload = Vec::new();
 
       for result in instructions {
-        if let Ok(Instruction::PushBytes(push)) = result {
+        if let Instruction::PushBytes(push) = result? {
           payload.extend_from_slice(push.as_bytes());
         } else {
           return Ok(Some(Payload::Invalid));
@@ -435,7 +433,7 @@ mod tests {
   }
 
   #[test]
-  fn deciphering_valid_runestone_with_invalid_script_postfix_returns_invalid_payload() {
+  fn deciphering_valid_runestone_with_invalid_script_postfix_returns_script_error() {
     let mut script_pubkey = script::Builder::new()
       .push_opcode(opcodes::all::OP_RETURN)
       .push_opcode(MAGIC_NUMBER)
@@ -444,18 +442,16 @@ mod tests {
 
     script_pubkey.push(opcodes::all::OP_PUSHBYTES_4.to_u8());
 
-    assert_eq!(
-      Runestone::payload(&Transaction {
-        input: Vec::new(),
-        output: vec![TxOut {
-          script_pubkey: ScriptBuf::from_bytes(script_pubkey),
-          value: 0,
-        }],
-        lock_time: LockTime::ZERO,
-        version: 2,
-      }),
-      Ok(Some(Payload::Invalid))
-    );
+    Runestone::decipher(&Transaction {
+      input: Vec::new(),
+      output: vec![TxOut {
+        script_pubkey: ScriptBuf::from_bytes(script_pubkey),
+        value: 0,
+      }],
+      lock_time: LockTime::ZERO,
+      version: 2,
+    })
+    .unwrap_err();
   }
 
   #[test]
@@ -538,8 +534,8 @@ mod tests {
   }
 
   #[test]
-  fn invalid_input_scripts_are_skipped_when_searching_for_runestone() {
-    let payload = payload(&[Tag::Mint.into(), 1, Tag::Mint.into(), 1]);
+  fn error_in_input_aborts_search_for_runestone() {
+    let payload = payload(&[0, 1, 2, 3]);
 
     let payload: &PushBytes = payload.as_slice().try_into().unwrap();
 
@@ -550,33 +546,26 @@ mod tests {
       opcodes::all::OP_PUSHBYTES_4.to_u8(),
     ];
 
-    assert_eq!(
-      Runestone::decipher(&Transaction {
-        input: Vec::new(),
-        output: vec![
-          TxOut {
-            script_pubkey: ScriptBuf::from_bytes(script_pubkey),
-            value: 0,
-          },
-          TxOut {
-            script_pubkey: script::Builder::new()
-              .push_opcode(opcodes::all::OP_RETURN)
-              .push_opcode(MAGIC_NUMBER)
-              .push_slice(payload)
-              .into_script(),
-            value: 0,
-          },
-        ],
-        lock_time: LockTime::ZERO,
-        version: 2,
-      })
-      .unwrap()
-      .unwrap(),
-      Runestone {
-        mint: Some(RuneId::new(1, 1).unwrap()),
-        ..default()
-      },
-    );
+    Runestone::decipher(&Transaction {
+      input: Vec::new(),
+      output: vec![
+        TxOut {
+          script_pubkey: ScriptBuf::from_bytes(script_pubkey),
+          value: 0,
+        },
+        TxOut {
+          script_pubkey: script::Builder::new()
+            .push_opcode(opcodes::all::OP_RETURN)
+            .push_opcode(MAGIC_NUMBER)
+            .push_slice(payload)
+            .into_script(),
+          value: 0,
+        },
+      ],
+      lock_time: LockTime::ZERO,
+      version: 2,
+    })
+    .unwrap_err();
   }
 
   #[test]
@@ -1964,56 +1953,6 @@ mod tests {
         u128::MAX
       ])
       .cenotaph
-    );
-  }
-
-  #[test]
-  fn invalid_scripts_in_op_returns_are_ignored() {
-    let transaction = Transaction {
-      version: 2,
-      lock_time: LockTime::ZERO,
-      input: vec![TxIn {
-        previous_output: OutPoint::null(),
-        script_sig: ScriptBuf::new(),
-        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-        witness: Witness::new(),
-      }],
-      output: vec![TxOut {
-        script_pubkey: ScriptBuf::from(vec![
-          opcodes::all::OP_RETURN.to_u8(),
-          opcodes::all::OP_PUSHBYTES_4.to_u8(),
-        ]),
-        value: 0,
-      }],
-    };
-
-    assert_eq!(Runestone::decipher(&transaction).unwrap(), None);
-
-    let transaction = Transaction {
-      version: 2,
-      lock_time: LockTime::ZERO,
-      input: vec![TxIn {
-        previous_output: OutPoint::null(),
-        script_sig: ScriptBuf::new(),
-        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-        witness: Witness::new(),
-      }],
-      output: vec![TxOut {
-        script_pubkey: ScriptBuf::from(vec![
-          opcodes::all::OP_RETURN.to_u8(),
-          MAGIC_NUMBER.to_u8(),
-          opcodes::all::OP_PUSHBYTES_4.to_u8(),
-        ]),
-        value: 0,
-      }],
-    };
-
-    assert_eq!(
-      Runestone::decipher(&transaction).unwrap(),
-      Some(Runestone {
-        cenotaph: true,
-        ..default()
-      })
     );
   }
 }
