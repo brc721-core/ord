@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, std::collections::BTreeSet};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Output {

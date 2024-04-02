@@ -1,10 +1,13 @@
 use {
   super::*,
   anyhow::ensure,
-  bitcoin::blockdata::opcodes,
+  bitcoin::{
+    blockdata::{opcodes, script},
+    ScriptBuf,
+  },
   brotli::enc::{writer::CompressorWriter, BrotliEncoderParams},
   http::header::HeaderValue,
-  io::Write,
+  io::{Cursor, Read, Write},
   std::str,
 };
 

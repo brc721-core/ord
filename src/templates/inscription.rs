@@ -24,6 +24,10 @@ impl PageContent for InscriptionHtml {
   fn title(&self) -> String {
     format!("Inscription {}", self.number)
   }
+
+  fn preview_image_url(&self) -> Option<Trusted<String>> {
+    Some(Trusted(format!("/content/{}", self.id)))
+  }
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ use {
   super::*,
   crate::wallet::{batch, Wallet},
   bitcoincore_rpc::bitcoincore_rpc_json::ListDescriptorsResult,
+  reqwest::Url,
   shared_args::SharedArgs,
 };
 

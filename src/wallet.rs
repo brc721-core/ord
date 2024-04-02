@@ -6,6 +6,7 @@ use {
   bitcoin::{
     bip32::{ChildNumber, DerivationPath, ExtendedPrivKey, Fingerprint},
     psbt::Psbt,
+    Network,
   },
   bitcoincore_rpc::bitcoincore_rpc_json::{Descriptor, ImportDescriptors, Timestamp},
   fee_rate::FeeRate,
@@ -14,7 +15,7 @@ use {
     try_join, TryFutureExt,
   },
   miniscript::descriptor::{DescriptorSecretKey, DescriptorXKey, Wildcard},
-  reqwest::header,
+  reqwest::{header, Url},
   transaction_builder::TransactionBuilder,
 };
 

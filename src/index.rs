@@ -30,7 +30,7 @@ use {
   std::{
     collections::HashMap,
     io::{BufWriter, Write},
-    sync::Once,
+    sync::{Mutex, Once},
   },
 };
 

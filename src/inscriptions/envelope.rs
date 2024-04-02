@@ -3,6 +3,7 @@ use {
   bitcoin::blockdata::{
     opcodes,
     script::{
+      self,
       Instruction::{self, Op, PushBytes},
       Instructions,
     },
