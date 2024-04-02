@@ -33,16 +33,12 @@
 %% }
       <dt>limit</dt>
 %% if let Some(limit) = mint.limit {
-      <dd>{{ self.entry.pile(limit) }}</dd>
+      <dd>{{ Pile{ amount: limit, divisibility: self.entry.divisibility, symbol: self.entry.symbol } }}</dd>
 %% } else {
       <dd>none</dd>
 %% }
       <dt>mints</dt>
       <dd>{{ self.entry.mints }}</dd>
-      <dt>cap</dt>
-      <dd>{{ mint.cap.unwrap_or_default() }}</dd>
-      <dt>remaining</dt>
-      <dd>{{ mint.cap.unwrap_or_default() - self.entry.mints }}</dd>
       <dt>mintable</dt>
       <dd>{{ self.mintable }}</dd>
     </dl>
@@ -51,11 +47,11 @@
   <dd>no</dd>
 %% }
   <dt>supply</dt>
-  <dd>{{ self.entry.pile(self.entry.supply()) }}</dd>
+  <dd>{{ Pile{ amount: self.entry.supply, divisibility: self.entry.divisibility, symbol: self.entry.symbol } }}</dd>
   <dt>premine</dt>
-  <dd>{{ self.entry.pile(self.entry.premine) }}</dd>
+  <dd>{{ Pile{ amount: self.entry.premine, divisibility: self.entry.divisibility, symbol: self.entry.symbol } }}</dd>
   <dt>burned</dt>
-  <dd>{{ self.entry.pile(self.entry.burned) }}</dd>
+  <dd>{{ Pile{ amount: self.entry.burned, divisibility: self.entry.divisibility, symbol: self.entry.symbol } }}</dd>
   <dt>divisibility</dt>
   <dd>{{ self.entry.divisibility }}</dd>
 %% if let Some(symbol) = self.entry.symbol {

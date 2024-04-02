@@ -557,6 +557,7 @@ fn get_runes() {
           rune: Rune(RUNE),
           spacers: 0
         },
+        supply: 1000,
         symbol: Some('¢'),
         timestamp: 11,
       },
@@ -593,6 +594,7 @@ fn get_runes() {
               rune: Rune(RUNE),
               spacers: 0
             },
+            supply: 1000,
             symbol: Some('¢'),
             timestamp: 11,
           }
@@ -611,6 +613,7 @@ fn get_runes() {
               rune: Rune(RUNE + 1),
               spacers: 0
             },
+            supply: 1000,
             symbol: Some('¢'),
             timestamp: 19,
           }
@@ -629,6 +632,7 @@ fn get_runes() {
               rune: Rune(RUNE + 2),
               spacers: 0
             },
+            supply: 1000,
             symbol: Some('¢'),
             timestamp: 27,
           }

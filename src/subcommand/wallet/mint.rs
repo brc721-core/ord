@@ -39,7 +39,7 @@ impl Mint {
 
     let limit = rune_entry
       .mintable(Height(block_height), block_time)
-      .map_err(|err| anyhow!("rune {rune} {err}"))?;
+      .map_err(|e| anyhow!(e))?;
 
     let destination = wallet.get_change_address()?;
 

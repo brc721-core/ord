@@ -9,17 +9,22 @@ struct Claim {
 }
 
 struct Etched {
+  balance: u128,
   divisibility: u8,
   id: RuneId,
   mint: Option<MintEntry>,
-  premine: u128,
   spaced_rune: SpacedRune,
   symbol: Option<char>,
 }
 
+#[derive(Default)]
+pub(crate) struct RuneUpdate {
+  pub(crate) burned: u128,
+  pub(crate) mints: u64,
+  pub(crate) supply: u128,
+}
+
 pub(super) struct RuneUpdater<'a, 'tx, 'client> {
-  pub(super) block_time: u32,
-  pub(super) burned: HashMap<RuneId, u128>,
   pub(super) client: &'client Client,
   pub(super) height: u32,
   pub(super) id_to_entry: &'a mut Table<'tx, RuneIdValue, RuneEntryValue>,
@@ -30,7 +35,9 @@ pub(super) struct RuneUpdater<'a, 'tx, 'client> {
   pub(super) runes: u64,
   pub(super) sequence_number_to_rune_id: &'a mut Table<'tx, u32, RuneIdValue>,
   pub(super) statistic_to_count: &'a mut Table<'tx, u64, u64>,
+  pub(super) block_time: u32,
   pub(super) transaction_id_to_rune: &'a mut Table<'tx, &'static TxidValue, u128>,
+  pub(super) updates: HashMap<RuneId, RuneUpdate>,
 }
 
 impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
@@ -57,13 +64,14 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
         .transpose()?
       {
         *unallocated.entry(claim.id).or_default() += claim.limit;
+
+        let update = self.updates.entry(claim.id).or_default();
+
+        update.mints += 1;
+        update.supply += claim.limit;
       }
 
-      let etched = self.etched(tx_index, tx, &runestone)?;
-
-      if let Some(Etched { id, premine, .. }) = etched {
-        *unallocated.entry(id).or_default() += premine;
-      }
+      let mut etched = self.etched(tx_index, tx, &runestone)?;
 
       if !cenotaph {
         for Edict { id, amount, output } in runestone.edicts {
@@ -72,18 +80,21 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
           let output = usize::try_from(output).unwrap();
           assert!(output <= tx.output.len());
 
-          let id = if id == RuneId::default() {
-            let Some(Etched { id, .. }) = etched else {
-              continue;
-            };
-
-            id
+          let (balance, id) = if id == RuneId::default() {
+            // If this edict allocates new issuance runes, skip it
+            // if no issuance was present, or if the issuance was invalid.
+            // Additionally, replace ID 0 with the newly assigned ID, and
+            // get the unallocated balance of the issuance.
+            match etched.as_mut() {
+              Some(Etched { balance, id, .. }) => (balance, *id),
+              None => continue,
+            }
           } else {
-            id
-          };
-
-          let Some(balance) = unallocated.get_mut(&id) else {
-            continue;
+            // Get the unallocated balance of the given ID
+            match unallocated.get_mut(&id) {
+              Some(balance) => (balance, id),
+              None => continue,
+            }
           };
 
           let mut allocate = |balance: &mut u128, amount: u128, output: usize| {
@@ -213,17 +224,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
     // increment entries with burned runes
     for (id, amount) in burned {
-      *self.burned.entry(id).or_default() += amount;
-    }
-
-    Ok(())
-  }
-
-  pub(super) fn update(self) -> Result {
-    for (rune_id, burned) in self.burned {
-      let mut entry = RuneEntry::load(self.id_to_entry.get(&rune_id.store())?.unwrap().value());
-      entry.burned += burned;
-      self.id_to_entry.insert(&rune_id.store(), entry.store())?;
+      self.updates.entry(id).or_default().burned += amount;
     }
 
     Ok(())
@@ -231,10 +232,10 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
   fn create_rune_entry(&mut self, txid: Txid, burn: bool, etched: Etched) -> Result {
     let Etched {
+      balance,
       divisibility,
       id,
       mint,
-      premine,
       spaced_rune,
       symbol,
     } = etched;
@@ -246,6 +247,8 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
     let number = self.runes;
     self.runes += 1;
+
+    let premine = u128::MAX - balance;
 
     self
       .statistic_to_count
@@ -262,6 +265,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
         number,
         premine,
         spaced_rune,
+        supply: premine,
         symbol,
         timestamp: self.block_time,
       }
@@ -316,42 +320,35 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
     };
 
     Ok(Some(Etched {
-      divisibility: etching.divisibility.unwrap_or_default(),
+      balance: u128::MAX,
+      divisibility: etching.divisibility,
       id: RuneId {
         block: self.height,
         tx: tx_index,
       },
-      mint: etching.mint.map(|mint| MintEntry {
-        cap: mint.cap,
-        deadline: mint.deadline,
-        end: mint.term.map(|term| term + self.height),
-        limit: mint.limit,
-      }),
-      premine: etching.premine.unwrap_or_default(),
       spaced_rune: SpacedRune {
         rune,
-        spacers: etching.spacers.unwrap_or_default(),
+        spacers: etching.spacers,
       },
       symbol: etching.symbol,
+      mint: etching.mint.map(|mint| MintEntry {
+        deadline: mint.deadline,
+        end: mint.term.map(|term| term + self.height),
+        limit: mint.limit.map(|limit| limit.min(runes::MAX_LIMIT)),
+      }),
     }))
   }
 
-  fn claim(&mut self, id: RuneId) -> Result<Option<Claim>> {
+  fn claim(&self, id: RuneId) -> Result<Option<Claim>> {
     let Some(entry) = self.id_to_entry.get(&id.store())? else {
       return Ok(None);
     };
 
-    let mut rune_entry = RuneEntry::load(entry.value());
+    let rune_entry = RuneEntry::load(entry.value());
 
     let Ok(limit) = rune_entry.mintable(Height(self.height), self.block_time) else {
       return Ok(None);
     };
-
-    drop(entry);
-
-    rune_entry.mints += 1;
-
-    self.id_to_entry.insert(&id.store(), rune_entry.store())?;
 
     Ok(Some(Claim { id, limit }))
   }

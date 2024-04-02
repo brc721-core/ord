@@ -2687,7 +2687,6 @@ mod tests {
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
           symbol: Some('%'),
-          premine: Some(u128::MAX),
           ..default()
         }),
         ..default()
@@ -2707,6 +2706,7 @@ mod tests {
             spacers: 0
           },
           premine: u128::MAX,
+          supply: u128::MAX,
           timestamp: id.block,
           symbol: Some('%'),
           ..default()
@@ -2753,7 +2753,6 @@ mod tests {
         etching: Some(Etching {
           rune: Some(rune),
           symbol: Some('%'),
-          premine: Some(u128::MAX),
           ..default()
         }),
         ..default()
@@ -2778,6 +2777,7 @@ mod tests {
           etching: txid,
           spaced_rune: SpacedRune { rune, spacers: 0 },
           premine: u128::MAX,
+          supply: u128::MAX,
           symbol: Some('%'),
           timestamp: id.block,
           ..default()
@@ -2865,8 +2865,7 @@ mod tests {
         etching: Some(Etching {
           rune: Some(rune),
           symbol: Some('%'),
-          spacers: Some(1),
-          premine: Some(u128::MAX),
+          spacers: 1,
           ..default()
         }),
         ..default()
@@ -2891,6 +2890,7 @@ mod tests {
           etching: txid,
           spaced_rune: SpacedRune { rune, spacers: 1 },
           premine: u128::MAX,
+          supply: u128::MAX,
           symbol: Some('%'),
           timestamp: id.block,
           ..default()
@@ -2964,7 +2964,6 @@ mod tests {
         }],
         etching: Some(Etching {
           rune: Some(Rune(RUNE)),
-          premine: Some(u128::MAX),
           ..default()
         }),
         ..default()
@@ -2984,6 +2983,7 @@ mod tests {
             spacers: 0
           },
           premine: u128::MAX,
+          supply: u128::MAX,
           timestamp: id.block,
           ..default()
         }
@@ -3026,9 +3026,8 @@ mod tests {
           output: 0,
         }],
         etching: Some(Etching {
-          divisibility: Some(1),
+          divisibility: 1,
           rune: Some(rune),
-          premine: Some(u128::MAX),
           ..default()
         }),
         ..default()
@@ -3046,6 +3045,7 @@ mod tests {
           etching: txid,
           spaced_rune: SpacedRune { rune, spacers: 0 },
           premine: u128::MAX,
+          supply: u128::MAX,
           timestamp: id.block,
           ..default()
         }

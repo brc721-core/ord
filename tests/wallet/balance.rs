@@ -108,7 +108,6 @@ fn runic_utxos_are_deducted_from_cardinal() {
         divisibility: 0,
         mint: None,
         premine: "1000".parse().unwrap(),
-        supply: "1000".parse().unwrap(),
         rune: SpacedRune { rune, spacers: 1 },
         symbol: '¢',
       }),

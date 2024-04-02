@@ -462,21 +462,19 @@ impl Plan {
         default_output: None,
         edicts,
         etching: Some(runes::Etching {
-          divisibility: (etching.divisibility > 0).then_some(etching.divisibility),
+          divisibility: etching.divisibility,
           mint: etching
             .mint
             .map(|mint| -> Result<runes::Mint> {
               Ok(runes::Mint {
-                cap: (mint.cap > 0).then_some(mint.cap),
                 deadline: mint.deadline,
-                limit: Some(mint.limit.to_amount(etching.divisibility)?),
                 term: mint.term,
+                limit: Some(mint.limit.to_amount(etching.divisibility)?),
               })
             })
             .transpose()?,
-          premine: (premine > 0).then_some(premine),
           rune: Some(etching.rune.rune),
-          spacers: (etching.rune.spacers > 0).then_some(etching.rune.spacers),
+          spacers: etching.rune.spacers,
           symbol: Some(etching.symbol),
         }),
       };

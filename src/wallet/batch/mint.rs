@@ -5,6 +5,5 @@ use super::*;
 pub struct Mint {
   pub deadline: Option<u32>,
   pub limit: Decimal,
-  pub cap: u128,
   pub term: Option<u32>,
 }

@@ -7,6 +7,5 @@ pub struct Etching {
   pub mint: Option<Mint>,
   pub premine: Decimal,
   pub rune: SpacedRune,
-  pub supply: Decimal,
   pub symbol: char,
 }
