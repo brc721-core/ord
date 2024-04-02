@@ -1,7 +1,6 @@
 use {
   super::*,
   base64::{self, Engine},
-  batch::ParentInfo,
   bitcoin::secp256k1::{All, Secp256k1},
   bitcoin::{
     bip32::{ChildNumber, DerivationPath, ExtendedPrivKey, Fingerprint},
@@ -14,12 +13,13 @@ use {
     future::{self, FutureExt},
     try_join, TryFutureExt,
   },
+  inscribe::ParentInfo,
   miniscript::descriptor::{DescriptorSecretKey, DescriptorXKey, Wildcard},
   reqwest::{header, Url},
   transaction_builder::TransactionBuilder,
 };
 
-pub mod batch;
+pub mod inscribe;
 pub mod transaction_builder;
 
 #[derive(Clone)]

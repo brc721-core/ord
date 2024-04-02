@@ -89,7 +89,7 @@ impl Inscribe {
     let postages;
     let reinscribe;
     let reveal_satpoints;
-    let etching;
+    let etch;
 
     let satpoint = match (self.file, self.batch) {
       (Some(file), None) => {
@@ -116,7 +116,7 @@ impl Inscribe {
           None,
         )?];
 
-        mode = batch::Mode::SeparateOutputs;
+        mode = Mode::SeparateOutputs;
 
         reinscribe = self.reinscribe;
 
@@ -127,7 +127,7 @@ impl Inscribe {
           None => wallet.get_change_address()?,
         }];
 
-        etching = None;
+        etch = None;
 
         if let Some(sat) = self.sat {
           Some(wallet.find_sat_in_outputs(sat)?)
@@ -136,7 +136,7 @@ impl Inscribe {
         }
       }
       (None, Some(batch)) => {
-        let batchfile = batch::File::load(&batch)?;
+        let batchfile = Batchfile::load(&batch)?;
 
         parent_info = wallet.get_parent_info(batchfile.parent)?;
 
@@ -157,7 +157,7 @@ impl Inscribe {
 
         reinscribe = batchfile.reinscribe;
 
-        etching = batchfile.etching;
+        etch = batchfile.etch;
 
         if let Some(sat) = batchfile.sat {
           Some(wallet.find_sat_in_outputs(sat)?)
@@ -168,13 +168,13 @@ impl Inscribe {
       _ => unreachable!(),
     };
 
-    if let Some(etching) = etching {
-      let rune = etching.rune.rune;
+    if let Some(etch) = etch {
+      let rune = etch.rune.rune;
 
       ensure!(!rune.is_reserved(), "rune `{rune}` is reserved");
 
       ensure!(
-        etching.divisibility <= crate::runes::MAX_DIVISIBILITY,
+        etch.divisibility <= crate::runes::MAX_DIVISIBILITY,
         "<DIVISIBILITY> must be less than or equal 38"
       );
 
@@ -201,11 +201,11 @@ impl Inscribe {
       );
     }
 
-    batch::Plan {
+    Batch {
       commit_fee_rate: self.commit_fee_rate.unwrap_or(self.fee_rate),
       destinations,
       dry_run: self.dry_run,
-      etching,
+      etch,
       inscriptions,
       mode,
       no_backup: self.no_backup,
@@ -234,7 +234,7 @@ impl Inscribe {
       Ok(Some(cbor))
     } else if let Some(path) = json {
       let value: serde_json::Value =
-        serde_json::from_reader(fs::File::open(path)?).context("failed to parse JSON metadata")?;
+        serde_json::from_reader(File::open(path)?).context("failed to parse JSON metadata")?;
       let mut cbor = Vec::new();
       ciborium::into_writer(&value, &mut cbor)?;
 
@@ -249,7 +249,7 @@ impl Inscribe {
 mod tests {
   use {
     super::*,
-    crate::wallet::batch::{self, ParentInfo},
+    crate::wallet::inscribe::{BatchEntry, BatchTransactions, ParentInfo},
     bitcoin::policy::MAX_STANDARD_TX_WEIGHT,
     serde_yaml::{Mapping, Value},
     tempfile::TempDir,
@@ -263,11 +263,11 @@ mod tests {
     let reveal_address = recipient();
     let reveal_change = [commit_address, change(1)];
 
-    let batch::Transactions {
+    let BatchTransactions {
       commit_tx,
       reveal_tx,
       ..
-    } = batch::Plan {
+    } = Batch {
       satpoint: Some(satpoint(1, 0)),
       parent_info: None,
       inscriptions: vec![inscription],
@@ -277,7 +277,7 @@ mod tests {
       no_limit: false,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -309,11 +309,11 @@ mod tests {
     let reveal_address = recipient();
     let reveal_change = [commit_address, change(1)];
 
-    let batch::Transactions {
+    let BatchTransactions {
       commit_tx,
       reveal_tx,
       ..
-    } = batch::Plan {
+    } = Batch {
       satpoint: Some(satpoint(1, 0)),
       parent_info: None,
       inscriptions: vec![inscription],
@@ -323,7 +323,7 @@ mod tests {
       no_limit: false,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -358,7 +358,7 @@ mod tests {
     let commit_address = change(0);
     let reveal_address = recipient();
 
-    let error = batch::Plan {
+    let error = Batch {
       satpoint,
       parent_info: None,
       inscriptions: vec![inscription],
@@ -368,7 +368,7 @@ mod tests {
       no_limit: false,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -410,7 +410,7 @@ mod tests {
     let commit_address = change(0);
     let reveal_address = recipient();
 
-    assert!(batch::Plan {
+    assert!(Batch {
       satpoint,
       parent_info: None,
       inscriptions: vec![inscription],
@@ -420,7 +420,7 @@ mod tests {
       no_limit: false,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -456,11 +456,11 @@ mod tests {
     let reveal_address = recipient();
     let fee_rate = 3.3;
 
-    let batch::Transactions {
+    let BatchTransactions {
       commit_tx,
       reveal_tx,
       ..
-    } = batch::Plan {
+    } = Batch {
       satpoint,
       parent_info: None,
       inscriptions: vec![inscription],
@@ -470,7 +470,7 @@ mod tests {
       no_limit: false,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -544,11 +544,11 @@ mod tests {
     let reveal_address = recipient();
     let fee_rate = 4.0;
 
-    let batch::Transactions {
+    let BatchTransactions {
       commit_tx,
       reveal_tx,
       ..
-    } = batch::Plan {
+    } = Batch {
       satpoint: None,
       parent_info: Some(parent_info.clone()),
       inscriptions: vec![child_inscription],
@@ -558,7 +558,7 @@ mod tests {
       no_limit: false,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -631,11 +631,11 @@ mod tests {
     let commit_fee_rate = 3.3;
     let fee_rate = 1.0;
 
-    let batch::Transactions {
+    let BatchTransactions {
       commit_tx,
       reveal_tx,
       ..
-    } = batch::Plan {
+    } = Batch {
       satpoint,
       parent_info: None,
       inscriptions: vec![inscription],
@@ -645,7 +645,7 @@ mod tests {
       no_limit: false,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -694,7 +694,7 @@ mod tests {
     let commit_address = change(0);
     let reveal_address = recipient();
 
-    let error = batch::Plan {
+    let error = Batch {
       satpoint,
       parent_info: None,
       inscriptions: vec![inscription],
@@ -704,7 +704,7 @@ mod tests {
       no_limit: false,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -735,7 +735,7 @@ mod tests {
     let commit_address = change(0);
     let reveal_address = recipient();
 
-    let batch::Transactions { reveal_tx, .. } = batch::Plan {
+    let BatchTransactions { reveal_tx, .. } = Batch {
       satpoint,
       parent_info: None,
       inscriptions: vec![inscription],
@@ -745,7 +745,7 @@ mod tests {
       no_limit: true,
       reinscribe: false,
       postages: vec![TARGET_POSTAGE],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -823,15 +823,15 @@ inscriptions:
     metadata.insert(Value::String("description".to_string()), Value::String("Lorem ipsum dolor sit amet, consectetur adipiscing elit. In tristique, massa nec condimentum venenatis, ante massa tempor velit, et accumsan ipsum ligula a massa. Nunc quis orci ante.".to_string()));
 
     assert_eq!(
-      batch::File::load(&batch_path).unwrap(),
-      batch::File {
+      Batchfile::load(&batch_path).unwrap(),
+      Batchfile {
         inscriptions: vec![
-          batch::Entry {
+          BatchEntry {
             file: inscription_path,
             metadata: Some(Value::Mapping(metadata)),
             ..Default::default()
           },
-          batch::Entry {
+          BatchEntry {
             file: brc20_path,
             metaprotocol: Some("brc-20".to_string()),
             ..Default::default()
@@ -853,7 +853,7 @@ inscriptions:
     )
     .unwrap();
 
-    assert!(batch::File::load(&batch_path)
+    assert!(Batchfile::load(&batch_path)
       .unwrap_err()
       .to_string()
       .contains("unknown field `unknown`"));
@@ -905,15 +905,15 @@ inscriptions:
       .into(),
     ];
 
-    let mode = batch::Mode::SharedOutput;
+    let mode = Mode::SharedOutput;
 
     let fee_rate = 4.0.try_into().unwrap();
 
-    let batch::Transactions {
+    let BatchTransactions {
       commit_tx,
       reveal_tx,
       ..
-    } = batch::Plan {
+    } = Batch {
       satpoint: None,
       parent_info: Some(parent_info.clone()),
       inscriptions,
@@ -1032,15 +1032,15 @@ inscriptions:
       })
       .collect::<Vec<(SatPoint, TxOut)>>();
 
-    let mode = batch::Mode::SatPoints;
+    let mode = Mode::SatPoints;
 
     let fee_rate = 1.0.try_into().unwrap();
 
-    let batch::Transactions {
+    let BatchTransactions {
       commit_tx,
       reveal_tx,
       ..
-    } = batch::Plan {
+    } = Batch {
       reveal_satpoints: reveal_satpoints.clone(),
       parent_info: Some(parent_info.clone()),
       inscriptions,
@@ -1142,7 +1142,7 @@ inscriptions:
     let commit_address = change(1);
     let reveal_addresses = vec![recipient()];
 
-    let error = batch::Plan {
+    let error = Batch {
       satpoint: None,
       parent_info: Some(parent_info.clone()),
       inscriptions,
@@ -1152,7 +1152,7 @@ inscriptions:
       no_limit: false,
       reinscribe: false,
       postages: vec![Amount::from_sat(10_000); 3],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -1219,7 +1219,7 @@ inscriptions:
     let commit_address = change(1);
     let reveal_addresses = vec![recipient(), recipient()];
 
-    let _ = batch::Plan {
+    let _ = Batch {
       satpoint: None,
       parent_info: Some(parent_info.clone()),
       inscriptions,
@@ -1229,7 +1229,7 @@ inscriptions:
       no_limit: false,
       reinscribe: false,
       postages: vec![Amount::from_sat(10_000)],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -1258,7 +1258,7 @@ inscriptions:
     let commit_address = change(1);
     let reveal_addresses = vec![recipient()];
 
-    let error = batch::Plan {
+    let error = Batch {
       satpoint: None,
       parent_info: None,
       inscriptions,
@@ -1268,7 +1268,7 @@ inscriptions:
       no_limit: false,
       reinscribe: false,
       postages: vec![Amount::from_sat(30_000); 3],
-      mode: batch::Mode::SharedOutput,
+      mode: Mode::SharedOutput,
       ..Default::default()
     }
     .create_batch_transactions(
@@ -1308,11 +1308,11 @@ inscriptions:
       inscription("text/plain", [b'O'; 222]),
     ];
 
-    let mode = batch::Mode::SeparateOutputs;
+    let mode = Mode::SeparateOutputs;
 
     let fee_rate = 4.0.try_into().unwrap();
 
-    let batch::Transactions { reveal_tx, .. } = batch::Plan {
+    let BatchTransactions { reveal_tx, .. } = Batch {
       satpoint: None,
       parent_info: None,
       inscriptions,
@@ -1389,15 +1389,15 @@ inscriptions:
       .into(),
     ];
 
-    let mode = batch::Mode::SeparateOutputs;
+    let mode = Mode::SeparateOutputs;
 
     let fee_rate = 4.0.try_into().unwrap();
 
-    let batch::Transactions {
+    let BatchTransactions {
       commit_tx,
       reveal_tx,
       ..
-    } = batch::Plan {
+    } = Batch {
       satpoint: None,
       parent_info: Some(parent_info.clone()),
       inscriptions,
@@ -1463,7 +1463,7 @@ inscriptions:
 
   #[test]
   fn example_batchfile_deserializes_successfully() {
-    batch::File::load(Path::new("batch.yaml")).unwrap();
+    Batchfile::load(Path::new("batch.yaml")).unwrap();
   }
 
   #[test]

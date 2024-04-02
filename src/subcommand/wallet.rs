@@ -1,6 +1,9 @@
 use {
   super::*,
-  crate::wallet::{batch, Wallet},
+  crate::wallet::{
+    inscribe::{Batch, Batchfile, Mode},
+    Wallet,
+  },
   bitcoincore_rpc::bitcoincore_rpc_json::ListDescriptorsResult,
   reqwest::Url,
 };

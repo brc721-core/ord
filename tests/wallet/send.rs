@@ -881,15 +881,15 @@ fn sending_rune_with_divisibility_works() {
   batch(
     &bitcoin_rpc_server,
     &ord_rpc_server,
-    batch::File {
-      etching: Some(batch::Etching {
+    Batchfile {
+      etch: Some(Etch {
         divisibility: 1,
         rune: SpacedRune { rune, spacers: 0 },
         premine: "1000".parse().unwrap(),
         symbol: '¢',
         mint: None,
       }),
-      inscriptions: vec![batch::Entry {
+      inscriptions: vec![BatchEntry {
         file: "inscription.jpeg".into(),
         ..Default::default()
       }],
