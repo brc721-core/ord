@@ -97,18 +97,18 @@ fn from_stdin() {
 
 #[test]
 fn from_core() {
-  let core = mockcore::spawn();
-  let ord = TestServer::spawn(&core);
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
+  let ord_rpc_server = TestServer::spawn(&bitcoin_rpc_server);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  let (_inscription, reveal) = inscribe(&core, &ord);
+  let (_inscription, reveal) = inscribe(&bitcoin_rpc_server, &ord_rpc_server);
 
   pretty_assert_eq!(
     CommandBuilder::new(format!("decode --txid {reveal}"))
-      .core(&core)
+      .bitcoin_rpc_server(&bitcoin_rpc_server)
       .run_and_deserialize_output::<RawOutput>(),
     RawOutput {
       inscriptions: vec![Envelope {

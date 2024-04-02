@@ -2,17 +2,20 @@ use {super::*, ord::subcommand::wallet::mint};
 
 #[test]
 fn minting_rune_and_fails_if_after_end() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-runes", "--regtest"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--index-runes", "--regtest"], &[]);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
   batch(
-    &core,
-    &ord,
+    &bitcoin_rpc_server,
+    &ord_rpc_server,
     batch::File {
       etching: Some(batch::Etching {
         divisibility: 1,
@@ -45,15 +48,15 @@ fn minting_rune_and_fails_if_after_end() {
     "--chain regtest --index-runes wallet mint --fee-rate 1 --rune {}",
     Rune(RUNE)
   ))
-  .core(&core)
-  .ord(&ord)
+  .bitcoin_rpc_server(&bitcoin_rpc_server)
+  .ord_rpc_server(&ord_rpc_server)
   .run_and_deserialize_output::<mint::Output>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let balances = CommandBuilder::new("--regtest --index-runes balances")
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<ord::subcommand::balances::Output>();
 
   pretty_assert_eq!(
@@ -85,14 +88,14 @@ fn minting_rune_and_fails_if_after_end() {
     }
   );
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new(format!(
     "--chain regtest --index-runes wallet mint --fee-rate 1 --rune {}",
     Rune(RUNE)
   ))
-  .core(&core)
-  .ord(&ord)
+  .bitcoin_rpc_server(&bitcoin_rpc_server)
+  .ord_rpc_server(&ord_rpc_server)
   .expected_exit_code(1)
   .expected_stderr("error: rune AAAAAAAAAAAAA mint ended on block 11\n")
   .run_and_extract_stdout();
@@ -100,15 +103,18 @@ fn minting_rune_and_fails_if_after_end() {
 
 #[test]
 fn minting_rune_fails_if_not_mintable() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-runes", "--regtest"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--index-runes", "--regtest"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
   batch(
-    &core,
-    &ord,
+    &bitcoin_rpc_server,
+    &ord_rpc_server,
     batch::File {
       etching: Some(batch::Etching {
         divisibility: 1,
@@ -133,8 +139,8 @@ fn minting_rune_fails_if_not_mintable() {
     "--chain regtest --index-runes wallet mint --fee-rate 1 --rune {}",
     Rune(RUNE)
   ))
-  .core(&core)
-  .ord(&ord)
+  .bitcoin_rpc_server(&bitcoin_rpc_server)
+  .ord_rpc_server(&ord_rpc_server)
   .expected_exit_code(1)
   .expected_stderr("error: rune AAAAAAAAAAAAA not mintable\n")
   .run_and_extract_stdout();
@@ -142,20 +148,22 @@ fn minting_rune_fails_if_not_mintable() {
 
 #[test]
 fn minting_rune_with_no_rune_index_fails() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest"], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest"], &[]);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
   CommandBuilder::new(format!(
     "--chain regtest --index-runes wallet mint --fee-rate 1 --rune {}",
     Rune(RUNE)
   ))
-  .core(&core)
-  .ord(&ord)
+  .bitcoin_rpc_server(&bitcoin_rpc_server)
+  .ord_rpc_server(&ord_rpc_server)
   .expected_exit_code(1)
   .expected_stderr("error: `ord wallet etch` requires index created with `--index-runes` flag\n")
   .run_and_extract_stdout();
@@ -163,17 +171,20 @@ fn minting_rune_with_no_rune_index_fails() {
 
 #[test]
 fn minting_rune_and_then_sending_works() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-runes", "--regtest"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--index-runes", "--regtest"], &[]);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
   batch(
-    &core,
-    &ord,
+    &bitcoin_rpc_server,
+    &ord_rpc_server,
     batch::File {
       etching: Some(batch::Etching {
         divisibility: 0,
@@ -203,8 +214,8 @@ fn minting_rune_and_then_sending_works() {
   );
 
   let balance = CommandBuilder::new("--chain regtest --index-runes wallet balance")
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<ord::subcommand::wallet::balance::Output>();
 
   assert_eq!(
@@ -216,15 +227,15 @@ fn minting_rune_and_then_sending_works() {
     "--chain regtest --index-runes wallet mint --fee-rate 1 --rune {}",
     Rune(RUNE)
   ))
-  .core(&core)
-  .ord(&ord)
+  .bitcoin_rpc_server(&bitcoin_rpc_server)
+  .ord_rpc_server(&ord_rpc_server)
   .run_and_deserialize_output::<mint::Output>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let balance = CommandBuilder::new("--chain regtest --index-runes wallet balance")
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<ord::subcommand::wallet::balance::Output>();
 
   assert_eq!(
@@ -245,7 +256,7 @@ fn minting_rune_and_then_sending_works() {
     "--regtest --index-runes wallet send bcrt1qs758ursh4q9z627kt3pp5yysm78ddny6txaqgw 5:{} --fee-rate 1",
     Rune(RUNE)
   ))
-  .core(&core)
-  .ord(&ord)
+  .bitcoin_rpc_server(&bitcoin_rpc_server)
+  .ord_rpc_server(&ord_rpc_server)
   .run_and_deserialize_output::<ord::subcommand::wallet::send::Output>();
 }

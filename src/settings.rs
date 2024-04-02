@@ -649,13 +649,15 @@ mod tests {
 
   #[test]
   fn rpc_server_chain_must_match() {
-    let core = mockcore::builder().network(Network::Testnet).build();
+    let rpc_server = test_bitcoincore_rpc::builder()
+      .network(Network::Testnet)
+      .build();
 
     let settings = parse(&[
       "--cookie-file",
-      core.cookie_file().to_str().unwrap(),
+      rpc_server.cookie_file().to_str().unwrap(),
       "--bitcoin-rpc-url",
-      &core.url(),
+      &rpc_server.url(),
     ]);
 
     assert_eq!(

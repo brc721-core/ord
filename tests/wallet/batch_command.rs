@@ -1,33 +1,38 @@
 use {super::*, ord::subcommand::wallet::send};
 
-fn receive(core: &mockcore::Handle, ord: &TestServer) -> Address {
+fn receive(
+  bitcoin_rpc_server: &test_bitcoincore_rpc::Handle,
+  ord_rpc_server: &TestServer,
+) -> Address {
   let address = CommandBuilder::new("wallet receive")
-    .core(core)
-    .ord(ord)
+    .bitcoin_rpc_server(bitcoin_rpc_server)
+    .ord_rpc_server(ord_rpc_server)
     .run_and_deserialize_output::<ord::subcommand::wallet::receive::Output>()
     .addresses
     .into_iter()
     .next()
     .unwrap();
 
-  address.require_network(core.state().network).unwrap()
+  address
+    .require_network(bitcoin_rpc_server.state().network)
+    .unwrap()
 }
 
 #[test]
 fn batch_inscribe_fails_if_batchfile_has_no_inscriptions() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("wallet batch --fee-rate 2.1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
     .write("batch.yaml", "mode: shared-output\ninscriptions: []\n")
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .stderr_regex(".*batchfile must contain at least one inscription.*")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -35,13 +40,13 @@ fn batch_inscribe_fails_if_batchfile_has_no_inscriptions() {
 
 #[test]
 fn batch_inscribe_can_create_one_inscription() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output = CommandBuilder::new("wallet batch --fee-rate 2.1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
@@ -49,15 +54,15 @@ fn batch_inscribe_can_create_one_inscription() {
       "batch.yaml",
       "mode: shared-output\ninscriptions:\n- file: inscription.txt\n  metadata: 123\n  metaprotocol: foo",
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  assert_eq!(core.descriptors().len(), 3);
+  assert_eq!(bitcoin_rpc_server.descriptors().len(), 3);
 
-  let request = ord.request(format!("/content/{}", output.inscriptions[0].id));
+  let request = ord_rpc_server.request(format!("/content/{}", output.inscriptions[0].id));
 
   assert_eq!(request.status(), 200);
   assert_eq!(
@@ -66,7 +71,7 @@ fn batch_inscribe_can_create_one_inscription() {
   );
   assert_eq!(request.text().unwrap(), "Hello World");
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     r".*<dt>metadata</dt>\s*<dd>\n    123\n  </dd>.*<dt>metaprotocol</dt>\s*<dd>foo</dd>.*",
   );
@@ -74,13 +79,13 @@ fn batch_inscribe_can_create_one_inscription() {
 
 #[test]
 fn batch_inscribe_with_multiple_inscriptions() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output = CommandBuilder::new("wallet batch --batch batch.yaml --fee-rate 55")
     .write("inscription.txt", "Hello World")
@@ -90,15 +95,15 @@ fn batch_inscribe_with_multiple_inscriptions() {
       "batch.yaml",
       "mode: shared-output\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n"
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  assert_eq!(core.descriptors().len(), 3);
+  assert_eq!(bitcoin_rpc_server.descriptors().len(), 3);
 
-  let request = ord.request(format!("/content/{}", output.inscriptions[0].id));
+  let request = ord_rpc_server.request(format!("/content/{}", output.inscriptions[0].id));
   assert_eq!(request.status(), 200);
   assert_eq!(
     request.headers().get("content-type").unwrap(),
@@ -106,34 +111,34 @@ fn batch_inscribe_with_multiple_inscriptions() {
   );
   assert_eq!(request.text().unwrap(), "Hello World");
 
-  let request = ord.request(format!("/content/{}", output.inscriptions[1].id));
+  let request = ord_rpc_server.request(format!("/content/{}", output.inscriptions[1].id));
   assert_eq!(request.status(), 200);
   assert_eq!(request.headers().get("content-type").unwrap(), "image/png");
 
-  let request = ord.request(format!("/content/{}", output.inscriptions[2].id));
+  let request = ord_rpc_server.request(format!("/content/{}", output.inscriptions[2].id));
   assert_eq!(request.status(), 200);
   assert_eq!(request.headers().get("content-type").unwrap(), "audio/wav");
 }
 
 #[test]
 fn batch_inscribe_with_multiple_inscriptions_with_parent() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let parent_output = CommandBuilder::new("wallet inscribe --fee-rate 5.0 --file parent.png")
     .write("parent.png", [1; 520])
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  assert_eq!(core.descriptors().len(), 3);
+  assert_eq!(bitcoin_rpc_server.descriptors().len(), 3);
 
   let parent_id = parent_output.inscriptions[0].id;
 
@@ -145,36 +150,36 @@ fn batch_inscribe_with_multiple_inscriptions_with_parent() {
       "batch.yaml",
       format!("parent: {parent_id}\nmode: shared-output\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n")
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     r".*<dt>parents</dt>\s*<dd>.*</dd>.*",
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     r".*<dt>parents</dt>\s*<dd>.*</dd>.*",
   );
 
-  let request = ord.request(format!("/content/{}", output.inscriptions[2].id));
+  let request = ord_rpc_server.request(format!("/content/{}", output.inscriptions[2].id));
   assert_eq!(request.status(), 200);
   assert_eq!(request.headers().get("content-type").unwrap(), "audio/wav");
 }
 
 #[test]
 fn batch_inscribe_respects_dry_run_flag() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output = CommandBuilder::new("wallet batch --fee-rate 2.1 --batch batch.yaml --dry-run")
     .write("inscription.txt", "Hello World")
@@ -182,28 +187,28 @@ fn batch_inscribe_respects_dry_run_flag() {
       "batch.yaml",
       "mode: shared-output\ninscriptions:\n- file: inscription.txt\n",
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  assert!(core.mempool().is_empty());
+  assert!(bitcoin_rpc_server.mempool().is_empty());
 
-  let request = ord.request(format!("/content/{}", output.inscriptions[0].id));
+  let request = ord_rpc_server.request(format!("/content/{}", output.inscriptions[0].id));
 
   assert_eq!(request.status(), 404);
 }
 
 #[test]
 fn batch_in_same_output_but_different_satpoints() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output = CommandBuilder::new("wallet batch --fee-rate 1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
@@ -213,8 +218,8 @@ fn batch_in_same_output_but_different_satpoints() {
       "batch.yaml",
       "mode: shared-output\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n"
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
   let outpoint = output.inscriptions[0].location.outpoint;
@@ -228,11 +233,11 @@ fn batch_in_same_output_but_different_satpoints() {
     );
   }
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let outpoint = output.inscriptions[0].location.outpoint;
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -240,7 +245,7 @@ fn batch_in_same_output_but_different_satpoints() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:10000</dd>.*",
@@ -248,7 +253,7 @@ fn batch_in_same_output_but_different_satpoints() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[2].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:20000</dd>.*",
@@ -256,7 +261,7 @@ fn batch_in_same_output_but_different_satpoints() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/output/{}", output.inscriptions[0].location.outpoint),
     format!(r".*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*", output.inscriptions[0].id, output.inscriptions[1].id, output.inscriptions[2].id),
   );
@@ -264,13 +269,13 @@ fn batch_in_same_output_but_different_satpoints() {
 
 #[test]
 fn batch_in_same_output_with_non_default_postage() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output = CommandBuilder::new("wallet batch --fee-rate 1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
@@ -280,8 +285,8 @@ fn batch_in_same_output_with_non_default_postage() {
       "batch.yaml",
       "mode: shared-output\npostage: 777\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n"
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
   let outpoint = output.inscriptions[0].location.outpoint;
@@ -296,11 +301,11 @@ fn batch_in_same_output_with_non_default_postage() {
     );
   }
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let outpoint = output.inscriptions[0].location.outpoint;
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -308,7 +313,7 @@ fn batch_in_same_output_with_non_default_postage() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:777</dd>.*",
@@ -316,7 +321,7 @@ fn batch_in_same_output_with_non_default_postage() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[2].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:1554</dd>.*",
@@ -324,7 +329,7 @@ fn batch_in_same_output_with_non_default_postage() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/output/{}", output.inscriptions[0].location.outpoint),
     format!(r".*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*", output.inscriptions[0].id, output.inscriptions[1].id, output.inscriptions[2].id),
   );
@@ -332,23 +337,23 @@ fn batch_in_same_output_with_non_default_postage() {
 
 #[test]
 fn batch_in_separate_outputs_with_parent() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let parent_output = CommandBuilder::new("wallet inscribe --fee-rate 5.0 --file parent.png")
     .write("parent.png", [1; 520])
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  assert_eq!(core.descriptors().len(), 3);
+  assert_eq!(bitcoin_rpc_server.descriptors().len(), 3);
 
   let parent_id = parent_output.inscriptions[0].id;
 
@@ -360,8 +365,8 @@ fn batch_in_separate_outputs_with_parent() {
       "batch.yaml",
       format!("parent: {parent_id}\nmode: separate-outputs\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n")
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
   for inscription in &output.inscriptions {
@@ -376,13 +381,13 @@ fn batch_in_separate_outputs_with_parent() {
   outpoints.dedup();
   assert_eq!(outpoints.len(), output.inscriptions.len());
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output_1 = output.inscriptions[0].location.outpoint;
   let output_2 = output.inscriptions[1].location.outpoint;
   let output_3 = output.inscriptions[2].location.outpoint;
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     format!(
       r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>10000</dd>.*.*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -390,7 +395,7 @@ fn batch_in_separate_outputs_with_parent() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     format!(
       r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>10000</dd>.*.*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -398,7 +403,7 @@ fn batch_in_separate_outputs_with_parent() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[2].id),
     format!(
       r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>10000</dd>.*.*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -409,23 +414,23 @@ fn batch_in_separate_outputs_with_parent() {
 
 #[test]
 fn batch_in_separate_outputs_with_parent_and_non_default_postage() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let parent_output = CommandBuilder::new("wallet inscribe --fee-rate 5.0 --file parent.png")
     .write("parent.png", [1; 520])
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  assert_eq!(core.descriptors().len(), 3);
+  assert_eq!(bitcoin_rpc_server.descriptors().len(), 3);
 
   let parent_id = parent_output.inscriptions[0].id;
 
@@ -437,8 +442,8 @@ fn batch_in_separate_outputs_with_parent_and_non_default_postage() {
       "batch.yaml",
       format!("parent: {parent_id}\nmode: separate-outputs\npostage: 777\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n")
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
   for inscription in &output.inscriptions {
@@ -454,13 +459,13 @@ fn batch_in_separate_outputs_with_parent_and_non_default_postage() {
   outpoints.dedup();
   assert_eq!(outpoints.len(), output.inscriptions.len());
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output_1 = output.inscriptions[0].location.outpoint;
   let output_2 = output.inscriptions[1].location.outpoint;
   let output_3 = output.inscriptions[2].location.outpoint;
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     format!(
       r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>777</dd>.*.*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -468,7 +473,7 @@ fn batch_in_separate_outputs_with_parent_and_non_default_postage() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     format!(
       r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>777</dd>.*.*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -476,7 +481,7 @@ fn batch_in_separate_outputs_with_parent_and_non_default_postage() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[2].id),
     format!(
       r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>777</dd>.*.*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -487,19 +492,21 @@ fn batch_in_separate_outputs_with_parent_and_non_default_postage() {
 
 #[test]
 fn batch_inscribe_fails_if_invalid_network_destination_address() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest"], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest wallet batch --fee-rate 2.1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
     .write("batch.yaml", "mode: separate-outputs\ninscriptions:\n- file: inscription.txt\n  destination: bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .stderr_regex("error: address bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4 belongs to network bitcoin which is different from required regtest\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -507,20 +514,20 @@ fn batch_inscribe_fails_if_invalid_network_destination_address() {
 
 #[test]
 fn batch_inscribe_fails_with_shared_output_or_same_sat_and_destination_set() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("wallet batch --fee-rate 2.1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
     .write("tulip.png", "")
     .write("batch.yaml", "mode: shared-output\ninscriptions:\n- file: inscription.txt\n  destination: bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4\n- file: tulip.png")
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_exit_code(1)
     .stderr_regex("error: individual inscription destinations cannot be set in `shared-output` or `same-sat` mode\n")
     .run_and_extract_stdout();
@@ -529,8 +536,8 @@ fn batch_inscribe_fails_with_shared_output_or_same_sat_and_destination_set() {
     .write("inscription.txt", "Hello World")
     .write("tulip.png", "")
     .write("batch.yaml", "mode: same-sat\nsat: 5000000000\ninscriptions:\n- file: inscription.txt\n  destination: bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4\n- file: tulip.png")
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_exit_code(1)
     .stderr_regex("error: individual inscription destinations cannot be set in `shared-output` or `same-sat` mode\n")
     .run_and_extract_stdout();
@@ -538,13 +545,13 @@ fn batch_inscribe_fails_with_shared_output_or_same_sat_and_destination_set() {
 
 #[test]
 fn batch_inscribe_works_with_some_destinations_set_and_others_not() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output = CommandBuilder::new("wallet batch --batch batch.yaml --fee-rate 55")
     .write("inscription.txt", "Hello World")
@@ -562,32 +569,32 @@ inscriptions:
   destination: bc1pxwww0ct9ue7e8tdnlmug5m2tamfn7q06sahstg39ys4c9f3340qqxrdu9k
 ",
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  assert_eq!(core.descriptors().len(), 3);
+  assert_eq!(bitcoin_rpc_server.descriptors().len(), 3);
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     ".*
   <dt>address</dt>
   <dd class=monospace>bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4</dd>.*",
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     format!(
       ".*
   <dt>address</dt>
   <dd class=monospace>{}</dd>.*",
-      core.state().change_addresses[0],
+      bitcoin_rpc_server.state().change_addresses[0],
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[2].id),
     ".*
   <dt>address</dt>
@@ -597,13 +604,13 @@ inscriptions:
 
 #[test]
 fn batch_same_sat() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output = CommandBuilder::new("wallet batch --fee-rate 1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
@@ -613,8 +620,8 @@ fn batch_same_sat() {
       "batch.yaml",
       "mode: same-sat\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n"
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
   assert_eq!(
@@ -626,11 +633,11 @@ fn batch_same_sat() {
     output.inscriptions[2].location
   );
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let outpoint = output.inscriptions[0].location.outpoint;
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -638,7 +645,7 @@ fn batch_same_sat() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -646,7 +653,7 @@ fn batch_same_sat() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[2].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -654,7 +661,7 @@ fn batch_same_sat() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/output/{}", output.inscriptions[0].location.outpoint),
     format!(r".*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*", output.inscriptions[0].id, output.inscriptions[1].id, output.inscriptions[2].id),
   );
@@ -662,21 +669,21 @@ fn batch_same_sat() {
 
 #[test]
 fn batch_same_sat_with_parent() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let parent_output = CommandBuilder::new("wallet inscribe --fee-rate 5.0 --file parent.png")
     .write("parent.png", [1; 520])
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let parent_id = parent_output.inscriptions[0].id;
 
@@ -688,8 +695,8 @@ fn batch_same_sat_with_parent() {
       "batch.yaml",
       format!("mode: same-sat\nparent: {parent_id}\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n")
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
   assert_eq!(
@@ -701,11 +708,11 @@ fn batch_same_sat_with_parent() {
     output.inscriptions[2].location
   );
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let txid = output.inscriptions[0].location.outpoint.txid;
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", parent_id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0:0</dd>.*",
@@ -713,7 +720,7 @@ fn batch_same_sat_with_parent() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:1:0</dd>.*",
@@ -721,7 +728,7 @@ fn batch_same_sat_with_parent() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:1:0</dd>.*",
@@ -729,7 +736,7 @@ fn batch_same_sat_with_parent() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[2].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:1:0</dd>.*",
@@ -737,7 +744,7 @@ fn batch_same_sat_with_parent() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/output/{}", output.inscriptions[0].location.outpoint),
     format!(r".*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*", output.inscriptions[0].id, output.inscriptions[1].id, output.inscriptions[2].id),
   );
@@ -745,21 +752,21 @@ fn batch_same_sat_with_parent() {
 
 #[test]
 fn batch_same_sat_with_satpoint_and_reinscription() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let output = CommandBuilder::new("wallet inscribe --fee-rate 5.0 --file parent.png")
     .write("parent.png", [1; 520])
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let inscription_id = output.inscriptions[0].id;
   let satpoint = output.inscriptions[0].location;
@@ -772,8 +779,8 @@ fn batch_same_sat_with_satpoint_and_reinscription() {
       "batch.yaml",
       format!("mode: same-sat\nsatpoint: {}\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n", satpoint)
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_exit_code(1)
     .stderr_regex(".*error: sat at .*:0:0 already inscribed.*")
     .run_and_extract_stdout();
@@ -786,8 +793,8 @@ fn batch_same_sat_with_satpoint_and_reinscription() {
       "batch.yaml",
       format!("mode: same-sat\nsatpoint: {}\nreinscribe: true\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n", satpoint)
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
   assert_eq!(
@@ -799,11 +806,11 @@ fn batch_same_sat_with_satpoint_and_reinscription() {
     output.inscriptions[2].location
   );
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let outpoint = output.inscriptions[0].location.outpoint;
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", inscription_id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -811,7 +818,7 @@ fn batch_same_sat_with_satpoint_and_reinscription() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[0].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -819,7 +826,7 @@ fn batch_same_sat_with_satpoint_and_reinscription() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[1].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -827,7 +834,7 @@ fn batch_same_sat_with_satpoint_and_reinscription() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", output.inscriptions[2].id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0</dd>.*",
@@ -835,7 +842,7 @@ fn batch_same_sat_with_satpoint_and_reinscription() {
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/output/{}", output.inscriptions[0].location.outpoint),
     format!(r".*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*<a href=/inscription/{}>.*</a>.*", inscription_id, output.inscriptions[0].id, output.inscriptions[1].id, output.inscriptions[2].id),
   );
@@ -843,24 +850,25 @@ fn batch_same_sat_with_satpoint_and_reinscription() {
 
 #[test]
 fn batch_inscribe_with_sat_argument_with_parent() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--index-sats"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let parent_output =
     CommandBuilder::new("--index-sats wallet inscribe --fee-rate 5.0 --file parent.png")
       .write("parent.png", [1; 520])
-      .core(&core)
-      .ord(&ord)
+      .bitcoin_rpc_server(&bitcoin_rpc_server)
+      .ord_rpc_server(&ord_rpc_server)
       .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  assert_eq!(core.descriptors().len(), 3);
+  assert_eq!(bitcoin_rpc_server.descriptors().len(), 3);
 
   let parent_id = parent_output.inscriptions[0].id;
 
@@ -872,13 +880,13 @@ fn batch_inscribe_with_sat_argument_with_parent() {
       "batch.yaml",
       format!("parent: {parent_id}\nmode: same-sat\nsat: 5000111111\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n")
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     "/sat/5000111111",
     format!(
       ".*<a href=/inscription/{}>.*<a href=/inscription/{}>.*<a href=/inscription/{}>.*",
@@ -889,13 +897,13 @@ fn batch_inscribe_with_sat_argument_with_parent() {
 
 #[test]
 fn batch_inscribe_with_sat_arg_fails_if_wrong_mode() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("wallet batch --fee-rate 1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
@@ -905,8 +913,8 @@ fn batch_inscribe_with_sat_arg_fails_if_wrong_mode() {
       "batch.yaml",
       "mode: shared-output\nsat: 5000111111\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n"
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_exit_code(1)
     .expected_stderr("error: neither `sat` nor `satpoint` can be set in `same-sat` mode\n")
     .run_and_extract_stdout();
@@ -914,13 +922,14 @@ fn batch_inscribe_with_sat_arg_fails_if_wrong_mode() {
 
 #[test]
 fn batch_inscribe_with_satpoint() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--index-sats"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  let txid = core.mine_blocks(1)[0].txdata[0].txid();
+  let txid = bitcoin_rpc_server.mine_blocks(1)[0].txdata[0].txid();
 
   let output = CommandBuilder::new("wallet batch --fee-rate 1 --batch batch.yaml")
     .write("inscription.txt", "Hello World")
@@ -930,13 +939,13 @@ fn batch_inscribe_with_satpoint() {
       "batch.yaml",
       format!("mode: same-sat\nsatpoint: {txid}:0:55555\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n", )
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     "/sat/5000055555",
     format!(
       ".*<a href=/inscription/{}>.*<a href=/inscription/{}>.*<a href=/inscription/{}>.*",
@@ -947,13 +956,14 @@ fn batch_inscribe_with_satpoint() {
 
 #[test]
 fn batch_inscribe_with_fee_rate() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--index-sats"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(2);
+  bitcoin_rpc_server.mine_blocks(2);
 
   let set_fee_rate = 1.0;
 
@@ -965,14 +975,14 @@ fn batch_inscribe_with_fee_rate() {
       "batch.yaml",
       "mode: same-sat\nsat: 5000111111\ninscriptions:\n- file: inscription.txt\n- file: tulip.png\n- file: meow.wav\n"
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  let commit_tx = &core.mempool()[0];
+  let commit_tx = &bitcoin_rpc_server.mempool()[0];
   let mut fee = 0;
   for input in &commit_tx.input {
-    fee += core
+    fee += bitcoin_rpc_server
       .get_utxo_amount(&input.previous_output)
       .unwrap()
       .to_sat();
@@ -983,7 +993,7 @@ fn batch_inscribe_with_fee_rate() {
   let fee_rate = fee as f64 / commit_tx.vsize() as f64;
   pretty_assert_eq!(fee_rate, set_fee_rate);
 
-  let reveal_tx = &core.mempool()[1];
+  let reveal_tx = &bitcoin_rpc_server.mempool()[1];
   let mut fee = 0;
   for input in &reveal_tx.input {
     fee += &commit_tx.output[input.previous_output.vout as usize].value;
@@ -1005,15 +1015,15 @@ fn batch_inscribe_with_fee_rate() {
 
 #[test]
 fn batch_inscribe_with_delegate_inscription() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  let (delegate, _) = inscribe(&core, &ord);
+  let (delegate, _) = inscribe(&bitcoin_rpc_server, &ord_rpc_server);
 
   let inscribe = CommandBuilder::new("wallet batch --fee-rate 1.0 --batch batch.yaml")
     .write("inscription.txt", "INSCRIPTION")
@@ -1027,29 +1037,29 @@ inscriptions:
 "
       ),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", inscribe.inscriptions[0].id),
     format!(r#".*<dt>delegate</dt>\s*<dd><a href=/inscription/{delegate}>{delegate}</a></dd>.*"#,),
   );
 
-  ord.assert_response(format!("/content/{}", inscribe.inscriptions[0].id), "FOO");
+  ord_rpc_server.assert_response(format!("/content/{}", inscribe.inscriptions[0].id), "FOO");
 }
 
 #[test]
 fn batch_inscribe_with_non_existent_delegate_inscription() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &[], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &[], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let delegate = "0000000000000000000000000000000000000000000000000000000000000000i0";
 
@@ -1065,8 +1075,8 @@ inscriptions:
 "
       ),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr(format!("error: delegate {delegate} does not exist\n"))
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1074,24 +1084,25 @@ inscriptions:
 
 #[test]
 fn batch_inscribe_with_satpoints_with_parent() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--index-sats"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let parent_output =
     CommandBuilder::new("--index-sats wallet inscribe --fee-rate 5.0 --file parent.png")
       .write("parent.png", [1; 520])
-      .core(&core)
-      .ord(&ord)
+      .bitcoin_rpc_server(&bitcoin_rpc_server)
+      .ord_rpc_server(&ord_rpc_server)
       .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  let txids = core
+  let txids = bitcoin_rpc_server
     .mine_blocks(3)
     .iter()
     .map(|block| block.txdata[0].txid())
@@ -1122,7 +1133,7 @@ fn batch_inscribe_with_satpoints_with_parent() {
   };
 
   let sat_1 = serde_json::from_str::<api::Output>(
-    &ord
+    &ord_rpc_server
       .json_request(format!("/output/{}", satpoint_1.outpoint))
       .text()
       .unwrap(),
@@ -1133,7 +1144,7 @@ fn batch_inscribe_with_satpoints_with_parent() {
     .0;
 
   let sat_2 = serde_json::from_str::<api::Output>(
-    &ord
+    &ord_rpc_server
       .json_request(format!("/output/{}", satpoint_2.outpoint))
       .text()
       .unwrap(),
@@ -1144,7 +1155,7 @@ fn batch_inscribe_with_satpoints_with_parent() {
     .0;
 
   let sat_3 = serde_json::from_str::<api::Output>(
-    &ord
+    &ord_rpc_server
       .json_request(format!("/output/{}", satpoint_3.outpoint))
       .text()
       .unwrap(),
@@ -1177,13 +1188,13 @@ inscriptions:
         satpoint_1, satpoint_2, satpoint_3
       ),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", parent_id),
     format!(
       r".*<dt>location</dt>.*<dd class=monospace>{}:0:0</dd>.*",
@@ -1207,7 +1218,7 @@ inscriptions:
   let inscription_2 = &output.inscriptions[1];
   let inscription_3 = &output.inscriptions[2];
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{}", inscription_1.id),
     format!(r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>{}</dd>.*<dt>sat</dt>.*<dd>.*{}.*</dd>.*<dt>location</dt>.*<dd class=monospace>{}</dd>.*",
       50 * COIN_VALUE,
@@ -1216,7 +1227,7 @@ inscriptions:
     ),
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
       format!("/inscription/{}", inscription_2.id),
       format!(r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>{}</dd>.*<dt>sat</dt>.*<dd>.*{}.*</dd>.*<dt>location</dt>.*<dd class=monospace>{}</dd>.*",
          50 * COIN_VALUE,
@@ -1225,7 +1236,7 @@ inscriptions:
       ),
     );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
       format!("/inscription/{}", inscription_3.id),
       format!(r".*<dt>parents</dt>\s*<dd>.*{parent_id}.*</dd>.*<dt>value</dt>.*<dd>{}</dd>.*<dt>sat</dt>.*<dd>.*{}.*</dd>.*<dt>location</dt>.*<dd class=monospace>{}</dd>.*",
         50 * COIN_VALUE,
@@ -1237,59 +1248,60 @@ inscriptions:
 
 #[test]
 fn batch_inscribe_with_satpoints_with_different_sizes() {
-  let core = mockcore::spawn();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::spawn();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--index-sats"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--index-sats"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  let address_1 = receive(&core, &ord);
-  let address_2 = receive(&core, &ord);
-  let address_3 = receive(&core, &ord);
+  let address_1 = receive(&bitcoin_rpc_server, &ord_rpc_server);
+  let address_2 = receive(&bitcoin_rpc_server, &ord_rpc_server);
+  let address_3 = receive(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(3);
+  bitcoin_rpc_server.mine_blocks(3);
 
   let outpoint_1 = OutPoint {
     txid: CommandBuilder::new(format!(
       "--index-sats wallet send --fee-rate 1 {address_1} 25btc"
     ))
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .stdout_regex(r".*")
     .run_and_deserialize_output::<send::Output>()
     .txid,
     vout: 0,
   };
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let outpoint_2 = OutPoint {
     txid: CommandBuilder::new(format!(
       "--index-sats wallet send --fee-rate 1 {address_2} 1btc"
     ))
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .stdout_regex(r".*")
     .run_and_deserialize_output::<send::Output>()
     .txid,
     vout: 0,
   };
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let outpoint_3 = OutPoint {
     txid: CommandBuilder::new(format!(
       "--index-sats wallet send --fee-rate 1 {address_3} 3btc"
     ))
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .stdout_regex(r".*")
     .run_and_deserialize_output::<send::Output>()
     .txid,
     vout: 0,
   };
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let satpoint_1 = SatPoint {
     outpoint: outpoint_1,
@@ -1307,7 +1319,7 @@ fn batch_inscribe_with_satpoints_with_different_sizes() {
   };
 
   let output_1 = serde_json::from_str::<api::Output>(
-    &ord
+    &ord_rpc_server
       .json_request(format!("/output/{}", satpoint_1.outpoint))
       .text()
       .unwrap(),
@@ -1316,7 +1328,7 @@ fn batch_inscribe_with_satpoints_with_different_sizes() {
   assert_eq!(output_1.value, 25 * COIN_VALUE);
 
   let output_2 = serde_json::from_str::<api::Output>(
-    &ord
+    &ord_rpc_server
       .json_request(format!("/output/{}", satpoint_2.outpoint))
       .text()
       .unwrap(),
@@ -1325,7 +1337,7 @@ fn batch_inscribe_with_satpoints_with_different_sizes() {
   assert_eq!(output_2.value, COIN_VALUE);
 
   let output_3 = serde_json::from_str::<api::Output>(
-    &ord
+    &ord_rpc_server
       .json_request(format!("/output/{}", satpoint_3.outpoint))
       .text()
       .unwrap(),
@@ -1357,11 +1369,11 @@ inscriptions:
         satpoint_1, satpoint_2, satpoint_3
       ),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .run_and_deserialize_output::<Batch>();
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   for inscription in &output.inscriptions {
     assert_eq!(inscription.location.offset, 0);
@@ -1379,7 +1391,7 @@ inscriptions:
   let inscription_2 = &output.inscriptions[1];
   let inscription_3 = &output.inscriptions[2];
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
      format!("/inscription/{}", inscription_1.id),
      format!(
        r".*<dt>value</dt>.*<dd>{}</dd>.*<dt>sat</dt>.*<dd>.*{}.*</dd>.*<dt>location</dt>.*<dd class=monospace>{}</dd>.*",
@@ -1389,7 +1401,7 @@ inscriptions:
      ),
    );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
       format!("/inscription/{}", inscription_2.id),
       format!(
         r".*<dt>value</dt>.*<dd>{}</dd>.*<dt>sat</dt>.*<dd>.*{}.*</dd>.*<dt>location</dt>.*<dd class=monospace>{}</dd>.*",
@@ -1399,7 +1411,7 @@ inscriptions:
       ),
     );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
          format!("/inscription/{}", inscription_3.id),
          format!(
            r".*<dt>value</dt>.*<dd>{}</dd>.*<dt>sat</dt>.*<dd>.*{}.*</dd>.*<dt>location</dt>.*<dd class=monospace>{}</dd>.*",
@@ -1412,17 +1424,20 @@ inscriptions:
 
 #[test]
 fn batch_inscribe_can_etch_rune() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let batch = batch(
-    &core,
-    &ord,
+    &bitcoin_rpc_server,
+    &ord_rpc_server,
     batch::File {
       etching: Some(batch::Etching {
         divisibility: 0,
@@ -1445,25 +1460,25 @@ fn batch_inscribe_can_etch_rune() {
 
   let parent = batch.output.inscriptions[0].id;
 
-  let request = ord.request(format!("/content/{parent}"));
+  let request = ord_rpc_server.request(format!("/content/{parent}"));
 
   assert_eq!(request.status(), 200);
   assert_eq!(request.headers().get("content-type").unwrap(), "image/jpeg");
   assert_eq!(request.text().unwrap(), "inscription");
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{parent}"),
     r".*<dt>rune</dt>\s*<dd><a href=/rune/AAAAAAAAAAAAA>AAAAAAAAAAAAA</a></dd>.*",
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     "/rune/AAAAAAAAAAAAA",
     format!(
       r".*<dt>parent</dt>\s*<dd><a class=monospace href=/inscription/{parent}>{parent}</a></dd>.*"
     ),
   );
 
-  assert!(core.state().is_wallet_address(
+  assert!(bitcoin_rpc_server.state().is_wallet_address(
     &batch
       .output
       .rune
@@ -1475,24 +1490,27 @@ fn batch_inscribe_can_etch_rune() {
   ));
 
   assert_eq!(
-    core.tx_by_id(batch.output.reveal).input[0].sequence,
+    bitcoin_rpc_server.tx_by_id(batch.output.reveal).input[0].sequence,
     Sequence::from_height(Runestone::COMMIT_INTERVAL)
   );
 }
 
 #[test]
 fn batch_inscribe_can_etch_rune_with_offset() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let batch = batch(
-    &core,
-    &ord,
+    &bitcoin_rpc_server,
+    &ord_rpc_server,
     batch::File {
       etching: Some(batch::Etching {
         divisibility: 0,
@@ -1523,25 +1541,25 @@ fn batch_inscribe_can_etch_rune_with_offset() {
 
   let parent = batch.output.inscriptions[0].id;
 
-  let request = ord.request(format!("/content/{parent}"));
+  let request = ord_rpc_server.request(format!("/content/{parent}"));
 
   assert_eq!(request.status(), 200);
   assert_eq!(request.headers().get("content-type").unwrap(), "image/jpeg");
   assert_eq!(request.text().unwrap(), "inscription");
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{parent}"),
     r".*<dt>rune</dt>\s*<dd><a href=/rune/AAAAAAAAAAAAA>AAAAAAAAAAAAA</a></dd>.*",
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     "/rune/AAAAAAAAAAAAA",
     format!(
       r".*<dt>parent</dt>\s*<dd><a class=monospace href=/inscription/{parent}>{parent}</a></dd>.*"
     ),
   );
 
-  assert!(core.state().is_wallet_address(
+  assert!(bitcoin_rpc_server.state().is_wallet_address(
     &batch
       .output
       .rune
@@ -1555,17 +1573,20 @@ fn batch_inscribe_can_etch_rune_with_offset() {
 
 #[test]
 fn batch_inscribe_can_etch_rune_with_height() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   let batch = batch(
-    &core,
-    &ord,
+    &bitcoin_rpc_server,
+    &ord_rpc_server,
     batch::File {
       etching: Some(batch::Etching {
         divisibility: 0,
@@ -1596,25 +1617,25 @@ fn batch_inscribe_can_etch_rune_with_height() {
 
   let parent = batch.output.inscriptions[0].id;
 
-  let request = ord.request(format!("/content/{parent}"));
+  let request = ord_rpc_server.request(format!("/content/{parent}"));
 
   assert_eq!(request.status(), 200);
   assert_eq!(request.headers().get("content-type").unwrap(), "image/jpeg");
   assert_eq!(request.text().unwrap(), "inscription");
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     format!("/inscription/{parent}"),
     r".*<dt>rune</dt>\s*<dd><a href=/rune/AAAAAAAAAAAAA>AAAAAAAAAAAAA</a></dd>.*",
   );
 
-  ord.assert_response_regex(
+  ord_rpc_server.assert_response_regex(
     "/rune/AAAAAAAAAAAAA",
     format!(
       r".*<dt>parent</dt>\s*<dd><a class=monospace href=/inscription/{parent}>{parent}</a></dd>.*"
     ),
   );
 
-  assert!(core.state().is_wallet_address(
+  assert!(bitcoin_rpc_server.state().is_wallet_address(
     &batch
       .output
       .rune
@@ -1628,13 +1649,16 @@ fn batch_inscribe_can_etch_rune_with_height() {
 
 #[test]
 fn etch_existing_rune_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  etch(&core, &ord, Rune(RUNE));
+  etch(&bitcoin_rpc_server, &ord_rpc_server, Rune(RUNE));
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -1660,8 +1684,8 @@ fn etch_existing_rune_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: rune `AAAAAAAAAAAAA` has already been etched\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1669,13 +1693,16 @@ fn etch_existing_rune_error() {
 
 #[test]
 fn etch_reserved_rune_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -1701,8 +1728,8 @@ fn etch_reserved_rune_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: rune `AAAAAAAAAAAAAAAAAAAAAAAAAAA` is reserved\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1710,13 +1737,16 @@ fn etch_reserved_rune_error() {
 
 #[test]
 fn etch_sub_minimum_rune_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -1742,8 +1772,8 @@ fn etch_sub_minimum_rune_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: rune is less than minimum for next block: A < ZZQYZPATYGGX\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1751,13 +1781,15 @@ fn etch_sub_minimum_rune_error() {
 
 #[test]
 fn etch_requires_rune_index() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest"], &[]);
+  let ord_rpc_server = TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -1783,8 +1815,8 @@ fn etch_requires_rune_index() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: etching runes requires index created with `--index-runes`\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1792,13 +1824,16 @@ fn etch_requires_rune_index() {
 
 #[test]
 fn etch_divisibility_over_maximum_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -1824,8 +1859,8 @@ fn etch_divisibility_over_maximum_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: <DIVISIBILITY> must be less than or equal 38\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1833,13 +1868,16 @@ fn etch_divisibility_over_maximum_error() {
 
 #[test]
 fn etch_mintable_overflow_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -1873,8 +1911,8 @@ fn etch_mintable_overflow_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: `terms.count` * `terms.amount` over maximum\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1882,13 +1920,16 @@ fn etch_mintable_overflow_error() {
 
 #[test]
 fn etch_mintable_plus_premine_overflow_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -1922,8 +1963,8 @@ fn etch_mintable_plus_premine_overflow_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: `premine` + `terms.count` * `terms.amount` over maximum\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1931,13 +1972,16 @@ fn etch_mintable_plus_premine_overflow_error() {
 
 #[test]
 fn incorrect_supply_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -1971,8 +2015,8 @@ fn incorrect_supply_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: `supply` not equal to `premine` + `terms.count` * `terms.amount`\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -1980,13 +2024,16 @@ fn incorrect_supply_error() {
 
 #[test]
 fn zero_offset_interval_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -2020,8 +2067,8 @@ fn zero_offset_interval_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: `terms.offset.end` must be greater than `terms.offset.start`\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -2029,13 +2076,16 @@ fn zero_offset_interval_error() {
 
 #[test]
 fn zero_height_interval_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -2069,8 +2119,8 @@ fn zero_height_interval_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: `terms.height.end` must be greater than `terms.height.start`\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -2078,13 +2128,16 @@ fn zero_height_interval_error() {
 
 #[test]
 fn invalid_start_height_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -2118,8 +2171,8 @@ fn invalid_start_height_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr(
       "error: `terms.height.start` must be greater than the reveal transaction block height of 8\n",
     )
@@ -2129,13 +2182,16 @@ fn invalid_start_height_error() {
 
 #[test]
 fn invalid_end_height_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -2169,8 +2225,8 @@ fn invalid_end_height_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr(
       "error: `terms.height.end` must be greater than the reveal transaction block height of 8\n",
     )
@@ -2180,13 +2236,16 @@ fn invalid_end_height_error() {
 
 #[test]
 fn zero_supply_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -2212,8 +2271,8 @@ fn zero_supply_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: `supply` must be greater than zero\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -2221,13 +2280,16 @@ fn zero_supply_error() {
 
 #[test]
 fn zero_cap_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -2258,8 +2320,8 @@ fn zero_cap_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: `terms.cap` must be greater than zero\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -2267,13 +2329,16 @@ fn zero_cap_error() {
 
 #[test]
 fn zero_amount_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -2304,8 +2369,8 @@ fn zero_amount_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: `terms.amount` must be greater than zero\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -2313,13 +2378,16 @@ fn zero_amount_error() {
 
 #[test]
 fn oversize_runestone_error() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new("--regtest --index-runes wallet batch --fee-rate 0 --batch batch.yaml")
     .write("inscription.txt", "foo")
@@ -2356,8 +2424,8 @@ fn oversize_runestone_error() {
       })
       .unwrap(),
     )
-    .core(&core)
-    .ord(&ord)
+    .bitcoin_rpc_server(&bitcoin_rpc_server)
+    .ord_rpc_server(&ord_rpc_server)
     .expected_stderr("error: runestone greater than maximum OP_RETURN size: 125 > 82\n")
     .expected_exit_code(1)
     .run_and_extract_stdout();
@@ -2365,13 +2433,16 @@ fn oversize_runestone_error() {
 
 #[test]
 fn oversize_runestones_are_allowed_with_no_limit() {
-  let core = mockcore::builder().network(Network::Regtest).build();
+  let bitcoin_rpc_server = test_bitcoincore_rpc::builder()
+    .network(Network::Regtest)
+    .build();
 
-  let ord = TestServer::spawn_with_server_args(&core, &["--regtest", "--index-runes"], &[]);
+  let ord_rpc_server =
+    TestServer::spawn_with_server_args(&bitcoin_rpc_server, &["--regtest", "--index-runes"], &[]);
 
-  create_wallet(&core, &ord);
+  create_wallet(&bitcoin_rpc_server, &ord_rpc_server);
 
-  core.mine_blocks(1);
+  bitcoin_rpc_server.mine_blocks(1);
 
   CommandBuilder::new(
     "--regtest --index-runes wallet batch --fee-rate 0 --dry-run --no-limit --batch batch.yaml",
@@ -2410,7 +2481,7 @@ fn oversize_runestones_are_allowed_with_no_limit() {
     })
     .unwrap(),
   )
-  .core(&core)
-  .ord(&ord)
+  .bitcoin_rpc_server(&bitcoin_rpc_server)
+  .ord_rpc_server(&ord_rpc_server)
   .run_and_deserialize_output::<Batch>();
 }
