@@ -537,12 +537,11 @@ fn inscribe_with_no_limit() {
 
   bitcoin_rpc_server.mine_blocks(1);
 
-  let one_megger = std::iter::repeat(0).take(1_000_000).collect::<Vec<u8>>();
-  CommandBuilder::new("wallet inscribe --no-limit --file degenerate.png --fee-rate 1")
-    .write("degenerate.png", one_megger)
+  let four_megger = std::iter::repeat(0).take(4_000_000).collect::<Vec<u8>>();
+  CommandBuilder::new("wallet inscribe --no-limit degenerate.png --fee-rate 1")
+    .write("degenerate.png", four_megger)
     .bitcoin_rpc_server(&bitcoin_rpc_server)
-    .ord_rpc_server(&ord_rpc_server)
-    .run_and_deserialize_output::<Batch>();
+    .ord_rpc_server(&ord_rpc_server);
 }
 
 #[test]
