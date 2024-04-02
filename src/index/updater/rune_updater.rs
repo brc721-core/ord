@@ -5,7 +5,7 @@ use {
 
 struct Mint {
   id: RuneId,
-  amount: u128,
+  limit: u128,
 }
 
 struct Etched {
@@ -54,7 +54,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
         .and_then(|id| self.mint(id).transpose())
         .transpose()?
       {
-        *unallocated.entry(mint.id).or_default() += mint.amount;
+        *unallocated.entry(mint.id).or_default() += mint.limit;
       }
 
       let etched = self.etched(tx_index, tx, &runestone)?;
@@ -337,7 +337,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
     let mut rune_entry = RuneEntry::load(entry.value());
 
-    let Ok(amount) = rune_entry.mintable(self.height.into()) else {
+    let Ok(limit) = rune_entry.mintable(self.height.into()) else {
       return Ok(None);
     };
 
@@ -347,7 +347,7 @@ impl<'a, 'tx, 'client> RuneUpdater<'a, 'tx, 'client> {
 
     self.id_to_entry.insert(&id.store(), rune_entry.store())?;
 
-    Ok(Some(Mint { id, amount }))
+    Ok(Some(Mint { id, limit }))
   }
 
   fn tx_commits_to_rune(&self, tx: &Transaction, rune: Rune) -> Result<bool> {

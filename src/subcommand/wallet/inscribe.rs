@@ -244,8 +244,8 @@ impl Inscribe {
       .map(|terms| -> Result<u128> {
         terms
           .cap
-          .checked_mul(terms.amount.to_amount(etching.divisibility)?)
-          .ok_or_else(|| anyhow!("`terms.count` * `terms.amount` over maximum"))
+          .checked_mul(terms.limit.to_amount(etching.divisibility)?)
+          .ok_or_else(|| anyhow!("`terms.count` * `terms.limit` over maximum"))
       })
       .transpose()?
       .unwrap_or_default();
@@ -254,8 +254,8 @@ impl Inscribe {
       supply
         == premine
           .checked_add(mintable)
-          .ok_or_else(|| anyhow!("`premine` + `terms.count` * `terms.amount` over maximum"))?,
-      "`supply` not equal to `premine` + `terms.count` * `terms.amount`"
+          .ok_or_else(|| anyhow!("`premine` + `terms.count` * `terms.limit` over maximum"))?,
+      "`supply` not equal to `premine` + `terms.count` * `terms.limit`"
     );
 
     ensure!(supply > 0, "`supply` must be greater than zero");
@@ -298,8 +298,8 @@ impl Inscribe {
       ensure!(terms.cap > 0, "`terms.cap` must be greater than zero",);
 
       ensure!(
-        terms.amount.to_amount(etching.divisibility)? > 0,
-        "`terms.amount` must be greater than zero",
+        terms.limit.to_amount(etching.divisibility)? > 0,
+        "`terms.limit` must be greater than zero",
       );
     }
 

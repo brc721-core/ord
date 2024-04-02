@@ -7,7 +7,7 @@ pub(super) enum Tag {
   Rune = 4,
   Premine = 6,
   Cap = 8,
-  Amount = 10,
+  Limit = 10,
   HeightStart = 12,
   HeightEnd = 14,
   OffsetStart = 16,
