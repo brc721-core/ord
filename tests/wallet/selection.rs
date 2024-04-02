@@ -137,9 +137,9 @@ fn mint_does_not_select_inscription() {
       }),
       inscriptions: vec![batch::Entry {
         file: "inscription.jpeg".into(),
-        ..default()
+        ..Default::default()
       }],
-      ..default()
+      ..Default::default()
     },
   );
 

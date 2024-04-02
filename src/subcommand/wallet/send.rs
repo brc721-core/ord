@@ -275,7 +275,7 @@ impl Send {
         id,
         output: 2,
       }],
-      ..default()
+      ..Default::default()
     };
 
     let unfunded_transaction = Transaction {
